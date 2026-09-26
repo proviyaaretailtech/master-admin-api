@@ -32,31 +32,29 @@ export class OrganizationService {
   /**
    * Creates a new organization with strict unique email and phone validations
    */
-  async createOrganization(
-    data: CreateOrganizationInput,
-  ): Promise<OrganizationModel> {
+  async createOrganization(data: CreateOrganizationInput): Promise<OrganizationModel> {
     const emailNormalized = data.email.trim().toLowerCase();
     const phoneNormalized = data.phone_number.trim();
 
     // 1. Pre-check: Unique Email
     const emailCheck = await query<{ id: string }>(
       "SELECT id FROM organizations WHERE LOWER(email) = LOWER($1) LIMIT 1;",
-      [emailNormalized],
+      [emailNormalized]
     );
     if (emailCheck.rows.length > 0) {
       throw new BadRequestException(
-        `An organization with email '${emailNormalized}' already exists`,
+        `An organization with email '${emailNormalized}' already exists`
       );
     }
 
     // 2. Pre-check: Unique Phone Number
     const phoneCheck = await query<{ id: string }>(
       "SELECT id FROM organizations WHERE phone_number = $1 LIMIT 1;",
-      [phoneNormalized],
+      [phoneNormalized]
     );
     if (phoneCheck.rows.length > 0) {
       throw new BadRequestException(
-        `An organization with phone number '${phoneNormalized}' already exists`,
+        `An organization with phone number '${phoneNormalized}' already exists`
       );
     }
 
@@ -80,20 +78,14 @@ export class OrganizationService {
     } catch (err: any) {
       // Catch concurrent unique constraint violations (PostgreSQL error 23505)
       if (err.code === "23505") {
-        if (
-          err.detail?.includes("email") ||
-          err.constraint?.includes("email")
-        ) {
+        if (err.detail?.includes("email") || err.constraint?.includes("email")) {
           throw new BadRequestException(
-            `An organization with email '${emailNormalized}' already exists`,
+            `An organization with email '${emailNormalized}' already exists`
           );
         }
-        if (
-          err.detail?.includes("phone") ||
-          err.constraint?.includes("phone")
-        ) {
+        if (err.detail?.includes("phone") || err.constraint?.includes("phone")) {
           throw new BadRequestException(
-            `An organization with phone number '${phoneNormalized}' already exists`,
+            `An organization with phone number '${phoneNormalized}' already exists`
           );
         }
       }
@@ -105,7 +97,7 @@ export class OrganizationService {
    * Retrieves paginated organizations with parameterized multi-field search and filters
    */
   async getOrganizations(
-    params: Partial<GetOrganizationsQueryInput> = {},
+    params: Partial<GetOrganizationsQueryInput> = {}
   ): Promise<PaginatedOrganizationsResult> {
     const page = Math.max(1, params.page || 1);
     const limit = Math.max(1, Math.min(100, params.limit || 10));
@@ -119,21 +111,19 @@ export class OrganizationService {
       values.push(`%${params.search.trim()}%`);
       const idx = values.length;
       conditions.push(
-        `(business_name ILIKE $${idx} OR domain ILIKE $${idx} OR email ILIKE $${idx} OR phone_number ILIKE $${idx})`,
+        `(business_name ILIKE $${idx} OR domain ILIKE $${idx} OR email ILIKE $${idx} OR phone_number ILIKE $${idx})`
       );
     }
 
     // Status filter
-    if (
-      params.status &&
-      params.status !== "All Statuses" &&
-      params.status !== "All"
-    ) {
+    if (params.status && params.status !== "All Statuses" && params.status !== "All") {
       const statusTrimmed = params.status.trim();
       if (statusTrimmed.toLowerCase() === "approved") {
         conditions.push(`(status ILIKE 'Approved' OR status ILIKE 'Active')`);
       } else if (statusTrimmed.toLowerCase() === "rejected") {
-        conditions.push(`(status ILIKE 'Rejected' OR status ILIKE 'Suspended' OR status ILIKE 'Inactive')`);
+        conditions.push(
+          `(status ILIKE 'Rejected' OR status ILIKE 'Suspended' OR status ILIKE 'Inactive')`
+        );
       } else {
         values.push(statusTrimmed);
         const idx = values.length;
@@ -153,8 +143,7 @@ export class OrganizationService {
       conditions.push(`domain ILIKE $${idx}`);
     }
 
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     // Total count query
     const countSql = `SELECT COUNT(*)::int as total FROM organizations ${whereClause};`;
@@ -164,8 +153,7 @@ export class OrganizationService {
     // Sort column and direction sanitization (strictly whitelist verified)
     const rawSortBy = (params.sortBy || "created_at").toLowerCase();
     const sortColumn = ALLOWED_SORT_COLUMNS[rawSortBy] || "created_at";
-    const sortDirection =
-      (params.sortOrder || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+    const sortDirection = (params.sortOrder || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
     // Paginated data query
     values.push(limit);
@@ -204,7 +192,7 @@ export class OrganizationService {
        FROM organizations
        WHERE id = $1
        LIMIT 1;`,
-      [id],
+      [id]
     );
 
     if (result.rows.length === 0) {
@@ -217,10 +205,7 @@ export class OrganizationService {
   /**
    * Updates existing organization by UUID with conflict checks and partial updates
    */
-  async updateOrganization(
-    id: string,
-    data: UpdateOrganizationInput,
-  ): Promise<OrganizationModel> {
+  async updateOrganization(id: string, data: UpdateOrganizationInput): Promise<OrganizationModel> {
     // 1. Verify existence
     await this.getOrganizationById(id);
 
@@ -229,11 +214,11 @@ export class OrganizationService {
       const emailNormalized = data.email.trim().toLowerCase();
       const checkEmail = await query<{ id: string }>(
         "SELECT id FROM organizations WHERE LOWER(email) = LOWER($1) AND id != $2 LIMIT 1;",
-        [emailNormalized, id],
+        [emailNormalized, id]
       );
       if (checkEmail.rows.length > 0) {
         throw new BadRequestException(
-          `Email '${emailNormalized}' is already in use by another organization`,
+          `Email '${emailNormalized}' is already in use by another organization`
         );
       }
     }
@@ -243,11 +228,11 @@ export class OrganizationService {
       const phoneNormalized = data.phone_number.trim();
       const checkPhone = await query<{ id: string }>(
         "SELECT id FROM organizations WHERE phone_number = $1 AND id != $2 LIMIT 1;",
-        [phoneNormalized, id],
+        [phoneNormalized, id]
       );
       if (checkPhone.rows.length > 0) {
         throw new BadRequestException(
-          `Phone number '${phoneNormalized}' is already in use by another organization`,
+          `Phone number '${phoneNormalized}' is already in use by another organization`
         );
       }
     }
@@ -303,21 +288,11 @@ export class OrganizationService {
       return result.rows[0];
     } catch (err: any) {
       if (err.code === "23505") {
-        if (
-          err.detail?.includes("email") ||
-          err.constraint?.includes("email")
-        ) {
-          throw new BadRequestException(
-            "An organization with this email already exists",
-          );
+        if (err.detail?.includes("email") || err.constraint?.includes("email")) {
+          throw new BadRequestException("An organization with this email already exists");
         }
-        if (
-          err.detail?.includes("phone") ||
-          err.constraint?.includes("phone")
-        ) {
-          throw new BadRequestException(
-            "An organization with this phone number already exists",
-          );
+        if (err.detail?.includes("phone") || err.constraint?.includes("phone")) {
+          throw new BadRequestException("An organization with this phone number already exists");
         }
       }
       throw err;
@@ -328,7 +303,7 @@ export class OrganizationService {
    * Deletes an organization by UUID
    */
   async deleteOrganization(
-    id: string,
+    id: string
   ): Promise<{ success: boolean; message: string; deletedId: string }> {
     // 1. Verify existence
     await this.getOrganizationById(id);

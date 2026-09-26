@@ -17,7 +17,9 @@ export class UserService {
   /**
    * Retrieves paginated users with search and filtering
    */
-  async getUsers(params: GetUsersQueryInput = { page: 1, limit: 9 }): Promise<PaginatedUsersResult> {
+  async getUsers(
+    params: GetUsersQueryInput = { page: 1, limit: 9 }
+  ): Promise<PaginatedUsersResult> {
     const page = params.page && params.page > 0 ? params.page : 1;
     const limit = params.limit && params.limit > 0 ? params.limit : 9;
     const offset = (page - 1) * limit;

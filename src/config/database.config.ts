@@ -15,7 +15,9 @@ function buildPoolConfig(): PoolConfig {
   }
 
   // Check if user provided direct db.[ref].supabase.co format
-  const directMatch = rawUrl.trim().match(/postgresql:\/\/([^:]+):(.*)@db\.([a-z0-9]+)\.supabase\.co:?(\d+)?\/(.*)/);
+  const directMatch = rawUrl
+    .trim()
+    .match(/postgresql:\/\/([^:]+):(.*)@db\.([a-z0-9]+)\.supabase\.co:?(\d+)?\/(.*)/);
   if (directMatch) {
     const [, , passRaw, projectRef, , dbRaw] = directMatch;
     const database = dbRaw ? dbRaw.split("?")[0] : "postgres";

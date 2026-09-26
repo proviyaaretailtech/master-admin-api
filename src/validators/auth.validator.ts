@@ -11,11 +11,7 @@ export const registerSchema = z.object({
     .trim()
     .min(1, "Last name is required")
     .max(100, "Last name cannot exceed 100 characters"),
-  email: z
-    .string()
-    .trim()
-    .email("Please provide a valid email address")
-    .toLowerCase(),
+  email: z.string().trim().email("Please provide a valid email address").toLowerCase(),
   phone_number: z
     .string()
     .trim()
@@ -29,11 +25,7 @@ export const registerSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  email: z
-    .string()
-    .trim()
-    .email("Please provide a valid email address")
-    .toLowerCase(),
+  email: z.string().trim().email("Please provide a valid email address").toLowerCase(),
   password: z.string().min(1, "Password is required"),
 });
 

@@ -41,6 +41,18 @@ export const errorHandler: ErrorRequestHandler = (
     return;
   }
 
+  // Handle body-parser entity too large (payload limit exceeded)
+  if (
+    (error as unknown as { type?: string; status?: number }).type === "entity.too.large" ||
+    (error as unknown as { status?: number }).status === 413
+  ) {
+    res.status(HTTPSTATUS.PAYLOAD_TOO_LARGE).json({
+      message: "Request payload too large. Maximum allowed size is 1MB.",
+      errorCode: "PAYLOAD_TOO_LARGE",
+    });
+    return;
+  }
+
   res.status(HTTPSTATUS.INTERNAL_SERVER_ERROR).json({
     message: "Internal Server Error",
     errorCode: ErrorCodeEnum.INTERNAL_SERVER_ERROR,

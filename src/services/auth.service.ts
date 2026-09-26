@@ -11,10 +11,9 @@ export class AuthService {
    */
   async register(data: RegisterInput) {
     // 1. Check if user already exists
-    const checkUser = await query<UserModel>(
-      "SELECT id FROM users WHERE email = $1 LIMIT 1;",
-      [data.email]
-    );
+    const checkUser = await query<UserModel>("SELECT id FROM users WHERE email = $1 LIMIT 1;", [
+      data.email,
+    ]);
 
     if (checkUser.rows.length > 0) {
       throw new BadRequestException("An account with this email address already exists");

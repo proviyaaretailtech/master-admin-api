@@ -116,10 +116,9 @@ async function runMigrations() {
         await client.query(sql);
 
         // Record successful execution into _migrations log table
-        await client.query(
-          "INSERT INTO _migrations (name, executed_at) VALUES ($1, now());",
-          [file]
-        );
+        await client.query("INSERT INTO _migrations (name, executed_at) VALUES ($1, now());", [
+          file,
+        ]);
         await client.query("COMMIT;");
 
         console.log(`✅ [APPLIED & RECORDED IN DB]: ${file}\n`);
@@ -133,9 +132,13 @@ async function runMigrations() {
 
     console.log("=========================================");
     if (appliedCount === 0) {
-      console.log(`✨ All ${skippedCount} migration(s) are already completed! No pending migrations to run.`);
+      console.log(
+        `✨ All ${skippedCount} migration(s) are already completed! No pending migrations to run.`
+      );
     } else {
-      console.log(`🎉 Successfully applied ${appliedCount} new migration(s)! (${skippedCount} previously completed)`);
+      console.log(
+        `🎉 Successfully applied ${appliedCount} new migration(s)! (${skippedCount} previously completed)`
+      );
     }
     console.log("=========================================");
   } catch (error: any) {

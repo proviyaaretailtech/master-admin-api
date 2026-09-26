@@ -6,10 +6,7 @@ export interface AccessTokenPayload {
   email: string;
 }
 
-export const signJwtToken = (
-  payload: AccessTokenPayload,
-  options?: SignOptions
-): string => {
+export const signJwtToken = (payload: AccessTokenPayload, options?: SignOptions): string => {
   return jwt.sign(payload, Env.JWT_SECRET, {
     expiresIn: (Env.JWT_EXPIRES_IN as any) || "7d",
     ...options,

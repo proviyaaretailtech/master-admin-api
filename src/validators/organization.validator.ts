@@ -23,10 +23,16 @@ export const createOrganizationSchema = z.object({
   phone_number: z
     .string({ required_error: "Phone number is required" })
     .trim()
-    .regex(PHONE_REGEX, "Please provide a valid phone number (7-25 characters including digits and optional country code)"),
+    .regex(
+      PHONE_REGEX,
+      "Please provide a valid phone number (7-25 characters including digits and optional country code)"
+    ),
   status: z
     .enum(["Active", "Inactive", "Pending", "Suspended", "Draft", "Approved", "Rejected"], {
-      errorMap: () => ({ message: "Status must be either 'Active', 'Inactive', 'Pending', 'Suspended', 'Draft', 'Approved', or 'Rejected'" }),
+      errorMap: () => ({
+        message:
+          "Status must be either 'Active', 'Inactive', 'Pending', 'Suspended', 'Draft', 'Approved', or 'Rejected'",
+      }),
     })
     .default("Active"),
 });
@@ -59,7 +65,10 @@ export const updateOrganizationSchema = z
       .optional(),
     status: z
       .enum(["Active", "Inactive", "Pending", "Suspended", "Draft", "Approved", "Rejected"], {
-        errorMap: () => ({ message: "Status must be either 'Active', 'Inactive', 'Pending', 'Suspended', 'Draft', 'Approved', or 'Rejected'" }),
+        errorMap: () => ({
+          message:
+            "Status must be either 'Active', 'Inactive', 'Pending', 'Suspended', 'Draft', 'Approved', or 'Rejected'",
+        }),
       })
       .optional(),
   })
@@ -70,7 +79,12 @@ export const updateOrganizationSchema = z
 
 export const getOrganizationsQuerySchema = z.object({
   page: z.coerce.number().int().min(1, "Page must be a positive integer").default(1),
-  limit: z.coerce.number().int().min(1, "Limit must be at least 1").max(100, "Limit cannot exceed 100").default(10),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1, "Limit must be at least 1")
+    .max(100, "Limit cannot exceed 100")
+    .default(10),
   search: z.string().trim().max(100).optional(),
   status: z.string().trim().optional(),
   domain: z.string().trim().optional(),
@@ -81,7 +95,9 @@ export const getOrganizationsQuerySchema = z.object({
 });
 
 export const organizationIdParamSchema = z.object({
-  id: z.string({ required_error: "Organization ID is required" }).uuid("Invalid organization ID format. Must be a valid UUID"),
+  id: z
+    .string({ required_error: "Organization ID is required" })
+    .uuid("Invalid organization ID format. Must be a valid UUID"),
 });
 
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
