@@ -25,6 +25,21 @@ export interface OrganizationModel {
   updated_at: string;
 }
 
+export interface LocationModel {
+  id: string;
+  org_id: string;
+  name: string;
+  area: string | null;
+  code: string | null;
+  type: string;
+  status: "Active" | "Pending" | "Inactive" | "Draft" | string;
+  time_zone: string;
+  currency: string;
+  last_sync: string;
+  created_at: string;
+  updated_at: string;
+}
+
 declare global {
   namespace Express {
     interface Request {
