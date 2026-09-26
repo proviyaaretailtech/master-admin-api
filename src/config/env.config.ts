@@ -7,13 +7,13 @@ export const Env = {
   CLIENT_ORIGIN: getEnv("CLIENT_ORIGIN", "http://localhost:5173"),
 
   // Supabase REST credentials
-  SUPABASE_URL: getEnv("SUPABASE_URL", "https://placeholder.supabase.co"),
-  SUPABASE_ANON_KEY: getEnv("SUPABASE_ANON_KEY", "placeholder-anon-key"),
+  SUPABASE_URL: getEnv("SUPABASE_URL"),
+  SUPABASE_ANON_KEY: getEnv("SUPABASE_ANON_KEY"),
 
   // Direct PostgreSQL Connection (used for migrations)
-  DATABASE_URL: process.env.DATABASE_URL || "",
+  DATABASE_URL: getEnv("DATABASE_URL"),
 
   // JWT Configuration (mirroring TechWithEmma system)
-  JWT_SECRET: getEnv("JWT_SECRET", "super-secret-jwt-pos-key-1234567890"),
-  JWT_EXPIRES_IN: getEnv("JWT_EXPIRES_IN", "7d"),
+  JWT_SECRET: getEnv("JWT_SECRET"),
+  JWT_EXPIRES_IN: getEnv("JWT_EXPIRES_IN"),
 } as const;
