@@ -35,9 +35,11 @@ function buildClientConfig(rawUrl: string): ClientConfig {
     // fallback
   }
 
+  const isLocal = trimmed.includes("localhost") || trimmed.includes("127.0.0.1");
+
   return {
     connectionString: trimmed,
-    ssl: { rejectUnauthorized: false },
+    ssl: isLocal ? false : { rejectUnauthorized: false },
   };
 }
 

@@ -34,9 +34,11 @@ function buildPoolConfig(): PoolConfig {
     };
   }
 
+  const isLocal = rawUrl.includes("localhost") || rawUrl.includes("127.0.0.1");
+
   return {
     connectionString: rawUrl.trim(),
-    ssl: { rejectUnauthorized: false },
+    ssl: isLocal ? false : { rejectUnauthorized: false },
     max: 10,
     idleTimeoutMillis: 30000,
   };
