@@ -13,9 +13,55 @@ export interface PaginatedUsersResult {
   };
 }
 
+interface UserDbRow {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+  status: string;
+  role_id: string | null;
+  role_name?: string | null;
+  role_key?: string | null;
+  role_scope?: string | null;
+  role_description?: string | null;
+  role_is_active?: boolean | null;
+  role_is_system?: boolean | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function mapUserRowToModel(row: UserDbRow): UserModel {
+  return {
+    id: row.id,
+    first_name: row.first_name,
+    last_name: row.last_name,
+    email: row.email,
+    phone_number: row.phone_number,
+    status: row.status,
+    role_id: row.role_id,
+    role_name: row.role_name || undefined,
+    role_key: row.role_key || undefined,
+    role_scope: row.role_scope || undefined,
+    role_details: row.role_id && row.role_name
+      ? {
+          id: row.role_id,
+          name: row.role_name,
+          key: row.role_key || "",
+          scope: row.role_scope || "",
+          description: row.role_description || "",
+          is_active: row.role_is_active ?? true,
+          is_system: row.role_is_system ?? false,
+        }
+      : null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 export class UserService {
   /**
-   * Retrieves paginated users with search and filtering
+   * Retrieves paginated users with search and filtering by security role
    */
   async getUsers(
     params: GetUsersQueryInput = { page: 1, limit: 9 }
@@ -27,59 +73,75 @@ export class UserService {
     const conditions: string[] = [];
     const values: any[] = [];
 
-    // Search filter across multiple columns
+    // Search filter across first name, last name, email, phone, and role name
     if (params.search && params.search.trim().length > 0) {
       values.push(`%${params.search.trim()}%`);
       const idx = values.length;
       conditions.push(
-        `(first_name ILIKE $${idx} OR last_name ILIKE $${idx} OR email ILIKE $${idx} OR phone_number ILIKE $${idx} OR panel ILIKE $${idx} OR role ILIKE $${idx})`
+        `(u.first_name ILIKE $${idx} OR u.last_name ILIKE $${idx} OR u.email ILIKE $${idx} OR u.phone_number ILIKE $${idx} OR sr.name ILIKE $${idx})`
       );
     }
 
-    // Role / Panel filter
-    if (params.panel && params.panel !== "All Panels / Roles") {
-      values.push(`%${params.panel.trim()}%`);
+    // Role filter
+    if (
+      params.role_id &&
+      params.role_id !== "All Roles" &&
+      params.role_id !== "All Security Roles" &&
+      params.role_id !== "All Panels / Roles"
+    ) {
+      values.push(params.role_id.trim());
       const idx = values.length;
-      conditions.push(`(panel ILIKE $${idx} OR role ILIKE $${idx})`);
+      conditions.push(`(u.role_id::text = $${idx} OR sr.key = $${idx} OR sr.name ILIKE $${idx})`);
     }
 
     // Status filter
-    if (params.status && params.status !== "All Statuses") {
+    if (params.status && params.status !== "All Statuses" && params.status !== "All") {
       values.push(params.status.trim());
       const idx = values.length;
-      conditions.push(`status = $${idx}`);
+      conditions.push(`u.status = $${idx}`);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    // Query total count
-    const countSql = `SELECT COUNT(*)::int as total FROM users ${whereClause};`;
+    // Total count query
+    const countSql = `
+      SELECT COUNT(u.id)::int as total
+      FROM users u
+      LEFT JOIN security_roles sr ON u.role_id = sr.id
+      ${whereClause};
+    `;
     const countResult = await query<{ total: number }>(countSql, values);
     const total = countResult.rows[0]?.total || 0;
 
-    // Query paginated users
+    // Paginated users query
     values.push(limit);
     const limitIdx = values.length;
     values.push(offset);
     const offsetIdx = values.length;
 
     const dataSql = `
-      SELECT id, first_name, last_name, email, phone_number,
-             COALESCE(panel, 'admin') as panel,
-             COALESCE(role, 'admin') as role,
-             COALESCE(status, 'Active') as status,
-             created_at, updated_at
-      FROM users
+      SELECT u.id, u.first_name, u.last_name, u.email, u.phone_number,
+             COALESCE(u.status, 'Active') as status,
+             u.role_id,
+             sr.name as role_name,
+             sr.key as role_key,
+             sr.scope as role_scope,
+             sr.description as role_description,
+             sr.is_active as role_is_active,
+             sr.is_system as role_is_system,
+             u.created_at, u.updated_at
+      FROM users u
+      LEFT JOIN security_roles sr ON u.role_id = sr.id
       ${whereClause}
-      ORDER BY created_at DESC
+      ORDER BY u.created_at DESC
       LIMIT $${limitIdx} OFFSET $${offsetIdx};
     `;
 
-    const result = await query<UserModel>(dataSql, values);
+    const result = await query<UserDbRow>(dataSql, values);
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
     return {
-      users: result.rows,
+      users: result.rows.map(mapUserRowToModel),
       pagination: {
         total,
         page,
@@ -90,17 +152,23 @@ export class UserService {
   }
 
   /**
-   * Retrieves single user by ID
+   * Retrieves single user by ID joined with security role details
    */
   async getUserById(id: string): Promise<UserModel> {
-    const result = await query<UserModel>(
-      `SELECT id, first_name, last_name, email, phone_number,
-              COALESCE(panel, 'admin') as panel,
-              COALESCE(role, 'admin') as role,
-              COALESCE(status, 'Active') as status,
-              created_at, updated_at
-       FROM users
-       WHERE id = $1
+    const result = await query<UserDbRow>(
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.phone_number,
+              COALESCE(u.status, 'Active') as status,
+              u.role_id,
+              sr.name as role_name,
+              sr.key as role_key,
+              sr.scope as role_scope,
+              sr.description as role_description,
+              sr.is_active as role_is_active,
+              sr.is_system as role_is_system,
+              u.created_at, u.updated_at
+       FROM users u
+       LEFT JOIN security_roles sr ON u.role_id = sr.id
+       WHERE u.id = $1
        LIMIT 1;`,
       [id]
     );
@@ -109,11 +177,11 @@ export class UserService {
       throw new NotFoundException("User not found");
     }
 
-    return result.rows[0];
+    return mapUserRowToModel(result.rows[0]);
   }
 
   /**
-   * Updates an existing user
+   * Updates an existing user without legacy role and panel columns
    */
   async updateUser(id: string, data: UpdateUserInput): Promise<UserModel> {
     // Check if user exists
@@ -121,7 +189,7 @@ export class UserService {
 
     // If email is being changed, ensure it's not taken by another user
     if (data.email) {
-      const checkEmail = await query<UserModel>(
+      const checkEmail = await query<{ id: string }>(
         "SELECT id FROM users WHERE email = $1 AND id != $2 LIMIT 1;",
         [data.email, id]
       );
@@ -131,40 +199,70 @@ export class UserService {
       }
     }
 
-    const result = await query<UserModel>(
-      `UPDATE users
-       SET
-         first_name = COALESCE($1, first_name),
-         last_name = COALESCE($2, last_name),
-         email = COALESCE($3, email),
-         phone_number = COALESCE($4, phone_number),
-         panel = COALESCE($5, panel),
-         role = COALESCE($6, role),
-         status = COALESCE($7, status),
-         updated_at = now()
-       WHERE id = $8
-       RETURNING id, first_name, last_name, email, phone_number,
-                 COALESCE(panel, 'admin') as panel,
-                 COALESCE(role, 'admin') as role,
-                 COALESCE(status, 'Active') as status,
-                 created_at, updated_at;`,
-      [
-        data.first_name || null,
-        data.last_name || null,
-        data.email || null,
-        data.phone_number || null,
-        data.panel || null,
-        data.role || null,
-        data.status || null,
-        id,
-      ]
-    );
+    // If role_id is provided, verify it exists in security_roles
+    if (data.role_id) {
+      const checkRole = await query<{ id: string }>(
+        "SELECT id FROM security_roles WHERE id = $1 LIMIT 1;",
+        [data.role_id]
+      );
+      if (checkRole.rows.length === 0) {
+        throw new BadRequestException(`Security role with ID '${data.role_id}' does not exist`);
+      }
+    }
 
+    // Build dynamic UPDATE query
+    const setClauses: string[] = [];
+    const values: any[] = [];
+
+    if (data.first_name !== undefined) {
+      values.push(data.first_name.trim());
+      setClauses.push(`first_name = $${values.length}`);
+    }
+
+    if (data.last_name !== undefined) {
+      values.push(data.last_name.trim());
+      setClauses.push(`last_name = $${values.length}`);
+    }
+
+    if (data.email !== undefined) {
+      values.push(data.email.trim().toLowerCase());
+      setClauses.push(`email = $${values.length}`);
+    }
+
+    if (data.phone_number !== undefined) {
+      values.push(data.phone_number.trim());
+      setClauses.push(`phone_number = $${values.length}`);
+    }
+
+    if (data.status !== undefined) {
+      values.push(data.status);
+      setClauses.push(`status = $${values.length}`);
+    }
+
+    if (data.role_id !== undefined) {
+      values.push(data.role_id);
+      setClauses.push(`role_id = $${values.length}`);
+    }
+
+    setClauses.push("updated_at = now()");
+
+    values.push(id);
+    const idIdx = values.length;
+
+    const updateSql = `
+      UPDATE users
+      SET ${setClauses.join(", ")}
+      WHERE id = $${idIdx}
+      RETURNING id;
+    `;
+
+    const result = await query<{ id: string }>(updateSql, values);
     if (result.rows.length === 0) {
       throw new BadRequestException("Failed to update user");
     }
 
-    return result.rows[0];
+    // Return refreshed user model with joined security role
+    return this.getUserById(id);
   }
 
   /**

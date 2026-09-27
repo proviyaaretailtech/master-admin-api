@@ -62,3 +62,13 @@ export class UnauthorizedException extends AppError {
     super(message, HTTPSTATUS.UNAUTHORIZED, errorCode);
   }
 }
+
+export class ForbiddenException extends AppError {
+  constructor(
+    message = "Forbidden: Insufficient Permissions",
+    errorCode: ErrorCodeEnumType = ErrorCodeEnum.ACCESS_UNAUTHORIZED
+  ) {
+    super(message, HTTPSTATUS.FORBIDDEN, errorCode);
+  }
+}
+

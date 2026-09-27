@@ -51,7 +51,10 @@ export class AuthService {
   async login(data: LoginInput) {
     // 1. Find user by email
     const result = await query<UserModel>(
-      `SELECT id, first_name, last_name, email, phone_number, password, created_at, updated_at
+      `SELECT id, first_name, last_name, email, phone_number, password,
+              COALESCE(status, 'Active') as status,
+              role_id,
+              created_at, updated_at
        FROM users
        WHERE email = $1
        LIMIT 1;`,
@@ -63,6 +66,11 @@ export class AuthService {
     }
 
     const user = result.rows[0];
+
+    // Check account status
+    if (user.status && user.status.toLowerCase() !== "active") {
+      throw new UnauthorizedException("User account has been deactivated or suspended");
+    }
 
     // 2. Compare password hash
     const isPasswordValid = await bcrypt.compare(data.password, user.password!);
@@ -79,16 +87,38 @@ export class AuthService {
     // 4. Strip sensitive password
     const { password: _, ...userWithoutPassword } = user;
 
+    // 5. Hydrate permissions and role details
+    const { permissionService } = await import("./permission.service");
+    const { role, permissions, isSuperAdmin } = await permissionService.getUserPermissionsAndRole(
+      userWithoutPassword as UserModel
+    );
+    const enrichedUser: UserModel = {
+      ...(userWithoutPassword as UserModel),
+      role_details: role,
+      permissions,
+      isSuperAdmin,
+    };
+
     return {
-      user: userWithoutPassword as UserModel,
+      user: enrichedUser,
       token,
     };
   }
 
   /**
-   * Returns authenticated user profile
+   * Returns authenticated user profile with permissions
    */
   async getMe(user: UserModel) {
+    if (!user.permissions || !user.role_details || user.isSuperAdmin === undefined) {
+      const { permissionService } = await import("./permission.service");
+      const { role, permissions, isSuperAdmin } = await permissionService.getUserPermissionsAndRole(user);
+      return {
+        ...user,
+        role_details: role,
+        permissions,
+        isSuperAdmin,
+      };
+    }
     return user;
   }
 }

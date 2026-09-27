@@ -10,8 +10,7 @@ export const updateUserSchema = z.object({
   last_name: z.string().trim().min(1, "Last name cannot be empty").max(100).optional(),
   phone_number: z.string().trim().optional(),
   email: z.string().trim().email("Please provide a valid email address").toLowerCase().optional(),
-  role: z.string().trim().max(50).optional(),
-  panel: z.string().trim().max(50).optional(),
+  role_id: z.string().uuid("Invalid role ID format").nullable().optional(),
   status: z.enum(["Active", "Inactive"]).optional(),
 });
 
@@ -19,7 +18,7 @@ export const getUsersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(9),
   search: z.string().trim().optional(),
-  panel: z.string().trim().optional(),
+  role_id: z.string().trim().optional(),
   status: z.string().trim().optional(),
 });
 

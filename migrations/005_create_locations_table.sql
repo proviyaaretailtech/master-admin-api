@@ -1,7 +1,7 @@
 -- Migration: 005_create_locations_table.sql
 -- Description: Creates the locations table associated with organizations, including location name, area, code, type, status, time_zone, currency, and timestamps
 
-CREATE TABLE IF NOT EXISTS locations (
+CREATE TABLE IF NOT EXISTS org_locations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name VARCHAR(150) NOT NULL,

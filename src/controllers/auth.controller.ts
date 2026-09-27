@@ -62,3 +62,22 @@ export const getMeController = asyncHandler(async (req: Request, res: Response) 
     user,
   });
 });
+
+export const getPermissionsController = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new UnauthorizedException("Not authenticated");
+  }
+
+  const user = await authService.getMe(req.user);
+
+  res.status(HTTPSTATUS.OK).json({
+    message: "User permissions fetched successfully",
+    permissions: user.permissions || [],
+    role: user.role_details || null,
+    isSuperAdmin:
+      req.isSuperAdmin ??
+      user.isSuperAdmin ??
+      (user.role_details?.key === "super_admin"),
+  });
+});
+

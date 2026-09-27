@@ -1,4 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { FeaturePermission } from "../utils/permission-adapter";
 
 export interface UserModel {
   id: string;
@@ -6,9 +7,22 @@ export interface UserModel {
   last_name: string;
   email: string;
   phone_number: string;
-  role?: string;
-  panel?: string;
   status?: string;
+  role_id?: string | null;
+  role_name?: string;
+  role_key?: string;
+  role_scope?: string;
+  role_details?: {
+    id: string;
+    name: string;
+    key: string;
+    scope: string;
+    description: string;
+    is_active: boolean;
+    is_system: boolean;
+  } | null;
+  permissions?: FeaturePermission[];
+  isSuperAdmin?: boolean;
   password?: string;
   created_at: string;
   updated_at: string;
@@ -46,6 +60,10 @@ declare global {
       user?: UserModel;
       token?: string;
       supabase?: SupabaseClient;
+      permissions?: FeaturePermission[];
+      userRole?: any;
+      isSuperAdmin?: boolean;
     }
   }
 }
+

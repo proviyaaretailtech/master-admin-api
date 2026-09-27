@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from "express";
-import { UnauthorizedException } from "../utils/app-error";
+import { UnauthorizedException, ForbiddenException } from "../utils/app-error";
 import { verifyJwtToken } from "../utils/jwt";
 import { query } from "../config/database.config";
 import { UserModel } from "../@types/express";
+import { permissionService } from "../services/permission.service";
 
 export const requireAuth = async (
   req: Request,
@@ -30,11 +31,14 @@ export const requireAuth = async (
       throw new UnauthorizedException("Invalid or expired authentication token");
     }
 
-    // Query user securely from Supabase users table using parameterized query
+    // Query user securely from Supabase users table
     const result = await query<UserModel>(
-      `SELECT id, first_name, last_name, email, phone_number, created_at, updated_at
-       FROM users
-       WHERE id = $1
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.phone_number,
+              COALESCE(u.status, 'Active') as status,
+              u.role_id,
+              u.created_at, u.updated_at
+       FROM users u
+       WHERE u.id = $1
        LIMIT 1;`,
       [payload.userId]
     );
@@ -43,10 +47,28 @@ export const requireAuth = async (
       throw new UnauthorizedException("User account not found or deactivated");
     }
 
-    req.user = result.rows[0];
+    const user = result.rows[0];
+
+    // Verify account active status
+    if (user.status && user.status.toLowerCase() !== "active") {
+      throw new ForbiddenException("User account has been deactivated or suspended");
+    }
+
+    // Resolve user's role and permission matrix
+    const { role, permissions, isSuperAdmin } = await permissionService.getUserPermissionsAndRole(user);
+    user.role_details = role;
+    user.permissions = permissions;
+    user.isSuperAdmin = isSuperAdmin;
+
+    req.user = user;
     req.token = token;
+    req.permissions = permissions;
+    req.userRole = role;
+    req.isSuperAdmin = isSuperAdmin;
+
     next();
   } catch (error) {
     next(error);
   }
 };
+

@@ -53,13 +53,13 @@ export class LocationService {
   }
 
   /**
-   * Creates a new location under the given organization
+   * Creates a new location under the given organization in org_locations table
    */
   async createLocation(orgId: string, data: CreateLocationInput): Promise<LocationModel> {
     await this.ensureOrganizationExists(orgId);
 
     const insertSql = `
-      INSERT INTO locations (org_id, name, area, code, type, status, time_zone, currency)
+      INSERT INTO org_locations (org_id, name, area, code, type, status, time_zone, currency)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id, org_id, name, area, code, type, status, time_zone, currency, last_sync, created_at, updated_at;
     `;
@@ -79,7 +79,7 @@ export class LocationService {
   }
 
   /**
-   * Retrieves paginated locations for an organization with search and filter capabilities
+   * Retrieves paginated locations for an organization from org_locations with search and filter capabilities
    */
   async getLocations(
     orgId: string,
@@ -117,7 +117,7 @@ export class LocationService {
     const whereClause = conditions.join(" AND ");
 
     // 1. Get Total Count
-    const countSql = `SELECT COUNT(*) AS total FROM locations WHERE ${whereClause};`;
+    const countSql = `SELECT COUNT(*) AS total FROM org_locations WHERE ${whereClause};`;
     const countResult = await query<{ total: string }>(countSql, values);
     const total = parseInt(countResult.rows[0]?.total || "0", 10);
 
@@ -132,7 +132,7 @@ export class LocationService {
 
     const fetchSql = `
       SELECT id, org_id, name, area, code, type, status, time_zone, currency, last_sync, created_at, updated_at
-      FROM locations
+      FROM org_locations
       WHERE ${whereClause}
       ORDER BY ${sortColumn} ${sortOrder}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1};
@@ -158,14 +158,14 @@ export class LocationService {
   }
 
   /**
-   * Retrieves a single location by ID for a specific organization
+   * Retrieves a single location by ID from org_locations for a specific organization
    */
   async getLocationById(orgId: string, locationId: string): Promise<LocationModel> {
     await this.ensureOrganizationExists(orgId);
 
     const result = await query<LocationModel>(
       `SELECT id, org_id, name, area, code, type, status, time_zone, currency, last_sync, created_at, updated_at
-       FROM locations
+       FROM org_locations
        WHERE id = $1 AND org_id = $2
        LIMIT 1;`,
       [locationId, orgId]
@@ -181,7 +181,7 @@ export class LocationService {
   }
 
   /**
-   * Updates an existing location under an organization
+   * Updates an existing location in org_locations under an organization
    */
   async updateLocation(
     orgId: string,
@@ -229,7 +229,7 @@ export class LocationService {
 
     values.push(locationId, orgId);
     const updateSql = `
-      UPDATE locations
+      UPDATE org_locations
       SET ${updateFields.join(", ")}
       WHERE id = $${paramIndex++} AND org_id = $${paramIndex++}
       RETURNING id, org_id, name, area, code, type, status, time_zone, currency, last_sync, created_at, updated_at;
@@ -240,13 +240,13 @@ export class LocationService {
   }
 
   /**
-   * Deletes a location by ID for a specific organization
+   * Deletes a location by ID from org_locations for a specific organization
    */
   async deleteLocation(orgId: string, locationId: string): Promise<void> {
     // Verify location exists first
     await this.getLocationById(orgId, locationId);
 
-    await query("DELETE FROM locations WHERE id = $1 AND org_id = $2;", [locationId, orgId]);
+    await query("DELETE FROM org_locations WHERE id = $1 AND org_id = $2;", [locationId, orgId]);
   }
 }
 
