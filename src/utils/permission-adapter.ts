@@ -212,7 +212,8 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
       {
         key: "edit_roles",
         label: "Edit Roles & Permissions",
-        description: "Modify authorization parameters, permissions matrix, and actions on existing roles",
+        description:
+          "Modify authorization parameters, permissions matrix, and actions on existing roles",
         enabled: true,
       },
       {

@@ -55,7 +55,8 @@ export const requireAuth = async (
     }
 
     // Resolve user's role and permission matrix
-    const { role, permissions, isSuperAdmin } = await permissionService.getUserPermissionsAndRole(user);
+    const { role, permissions, isSuperAdmin } =
+      await permissionService.getUserPermissionsAndRole(user);
     user.role_details = role;
     user.permissions = permissions;
     user.isSuperAdmin = isSuperAdmin;
@@ -71,4 +72,3 @@ export const requireAuth = async (
     next(error);
   }
 };
-

@@ -17,4 +17,3 @@ authRoutes.get("/me", requireAuth, getMeController);
 authRoutes.get("/permissions", requireAuth, getPermissionsController);
 
 export default authRoutes;
-

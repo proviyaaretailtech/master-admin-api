@@ -72,8 +72,14 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
     );
     if (adminUserRes.rows.length > 0) {
       superAdminUserId = adminUserRes.rows[0].id;
-      await query("UPDATE users SET role_id = $1 WHERE id = $2;", [superAdminRoleId, superAdminUserId]);
-      superAdminToken = signJwtToken({ userId: superAdminUserId, email: adminUserRes.rows[0].email });
+      await query("UPDATE users SET role_id = $1 WHERE id = $2;", [
+        superAdminRoleId,
+        superAdminUserId,
+      ]);
+      superAdminToken = signJwtToken({
+        userId: superAdminUserId,
+        email: adminUserRes.rows[0].email,
+      });
     } else {
       const newAdmin = await query<{ id: string; email: string }>(
         `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
@@ -92,7 +98,10 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
        RETURNING id, email;`
     );
     unassignedUserId = unassignedRes.rows[0].id;
-    unassignedToken = signJwtToken({ userId: unassignedUserId, email: unassignedRes.rows[0].email });
+    unassignedToken = signJwtToken({
+      userId: unassignedUserId,
+      email: unassignedRes.rows[0].email,
+    });
 
     // 4. Create Restricted Role (Locations completely disabled)
     const restrictedPermissions = serializeFeaturesToDb(
@@ -237,7 +246,10 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
       [contactEditorRoleId]
     );
     contactEditorUserId = ceUserRes.rows[0].id;
-    contactEditorToken = signJwtToken({ userId: contactEditorUserId, email: ceUserRes.rows[0].email });
+    contactEditorToken = signJwtToken({
+      userId: contactEditorUserId,
+      email: ceUserRes.rows[0].email,
+    });
   });
 
   afterAll(async () => {
@@ -248,10 +260,12 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
     if (reviewerUserId) await query("DELETE FROM users WHERE id = $1;", [reviewerUserId]);
     if (contactEditorUserId) await query("DELETE FROM users WHERE id = $1;", [contactEditorUserId]);
 
-    if (restrictedRoleId) await query("DELETE FROM security_roles WHERE id = $1;", [restrictedRoleId]);
+    if (restrictedRoleId)
+      await query("DELETE FROM security_roles WHERE id = $1;", [restrictedRoleId]);
     if (readOnlyRoleId) await query("DELETE FROM security_roles WHERE id = $1;", [readOnlyRoleId]);
     if (reviewerRoleId) await query("DELETE FROM security_roles WHERE id = $1;", [reviewerRoleId]);
-    if (contactEditorRoleId) await query("DELETE FROM security_roles WHERE id = $1;", [contactEditorRoleId]);
+    if (contactEditorRoleId)
+      await query("DELETE FROM security_roles WHERE id = $1;", [contactEditorRoleId]);
 
     if (deleteTestOrgId) await query("DELETE FROM organizations WHERE id = $1;", [deleteTestOrgId]);
   });

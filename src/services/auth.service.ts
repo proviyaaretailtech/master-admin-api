@@ -111,7 +111,8 @@ export class AuthService {
   async getMe(user: UserModel) {
     if (!user.permissions || !user.role_details || user.isSuperAdmin === undefined) {
       const { permissionService } = await import("./permission.service");
-      const { role, permissions, isSuperAdmin } = await permissionService.getUserPermissionsAndRole(user);
+      const { role, permissions, isSuperAdmin } =
+        await permissionService.getUserPermissionsAndRole(user);
       return {
         ...user,
         role_details: role,

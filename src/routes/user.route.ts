@@ -38,4 +38,3 @@ userRoutes.delete(
 );
 
 export default userRoutes;
-

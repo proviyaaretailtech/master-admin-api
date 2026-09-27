@@ -71,4 +71,3 @@ export class ForbiddenException extends AppError {
     super(message, HTTPSTATUS.FORBIDDEN, errorCode);
   }
 }
-

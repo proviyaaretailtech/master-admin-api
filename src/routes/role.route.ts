@@ -51,4 +51,3 @@ roleRoutes.delete(
 );
 
 export default roleRoutes;
-

@@ -46,7 +46,7 @@ export const requirePermission = (
         req.userRole = result.role;
         req.isSuperAdmin = isSuperAdmin;
       } else {
-        isSuperAdmin = req.isSuperAdmin ?? (req.userRole?.key === "super_admin");
+        isSuperAdmin = req.isSuperAdmin ?? req.userRole?.key === "super_admin";
       }
 
       // Super Admins possess unrestricted bypass
@@ -107,7 +107,7 @@ export const requireAnyPermission = (requirements: PermissionCheckOption[]) => {
         req.userRole = result.role;
         req.isSuperAdmin = isSuperAdmin;
       } else {
-        isSuperAdmin = req.isSuperAdmin ?? (req.userRole?.key === "super_admin");
+        isSuperAdmin = req.isSuperAdmin ?? req.userRole?.key === "super_admin";
       }
 
       if (isSuperAdmin) {
@@ -177,7 +177,7 @@ export const requireOrganizationUpdatePermission = async (
       req.userRole = result.role;
       req.isSuperAdmin = isSuperAdmin;
     } else {
-      isSuperAdmin = req.isSuperAdmin ?? (req.userRole?.key === "super_admin");
+      isSuperAdmin = req.isSuperAdmin ?? req.userRole?.key === "super_admin";
     }
 
     if (isSuperAdmin) {

@@ -74,10 +74,6 @@ export const getPermissionsController = asyncHandler(async (req: Request, res: R
     message: "User permissions fetched successfully",
     permissions: user.permissions || [],
     role: user.role_details || null,
-    isSuperAdmin:
-      req.isSuperAdmin ??
-      user.isSuperAdmin ??
-      (user.role_details?.key === "super_admin"),
+    isSuperAdmin: req.isSuperAdmin ?? user.isSuperAdmin ?? user.role_details?.key === "super_admin",
   });
 });
-

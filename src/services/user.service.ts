@@ -43,17 +43,18 @@ function mapUserRowToModel(row: UserDbRow): UserModel {
     role_name: row.role_name || undefined,
     role_key: row.role_key || undefined,
     role_scope: row.role_scope || undefined,
-    role_details: row.role_id && row.role_name
-      ? {
-          id: row.role_id,
-          name: row.role_name,
-          key: row.role_key || "",
-          scope: row.role_scope || "",
-          description: row.role_description || "",
-          is_active: row.role_is_active ?? true,
-          is_system: row.role_is_system ?? false,
-        }
-      : null,
+    role_details:
+      row.role_id && row.role_name
+        ? {
+            id: row.role_id,
+            name: row.role_name,
+            key: row.role_key || "",
+            scope: row.role_scope || "",
+            description: row.role_description || "",
+            is_active: row.role_is_active ?? true,
+            is_system: row.role_is_system ?? false,
+          }
+        : null,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };

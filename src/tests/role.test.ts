@@ -13,7 +13,9 @@ describe("Security Roles & Permissions API Integration Tests", () => {
     process.env.NODE_ENV = "test";
 
     // Clean up any remnants from previous tests
-    await query("DELETE FROM security_roles WHERE key = 'super_admin_dup_key' OR key = 'test_compliance_officer';");
+    await query(
+      "DELETE FROM security_roles WHERE key = 'super_admin_dup_key' OR key = 'test_compliance_officer';"
+    );
 
     // Ensure super_admin role exists
     const saRole = await query<{ id: string; name: string }>(

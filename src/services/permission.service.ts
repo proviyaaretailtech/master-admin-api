@@ -3,7 +3,6 @@ import { UserModel } from "../@types/express";
 import {
   FeaturePermission,
   AccessLevel,
-  DEFAULT_FEATURES_TEMPLATE,
   deserializeFeaturesFromDb,
 } from "../utils/permission-adapter";
 

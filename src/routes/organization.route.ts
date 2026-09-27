@@ -41,17 +41,9 @@ organizationRoutes.get(
   getOrganizationByIdController
 );
 
-organizationRoutes.put(
-  "/:id",
-  requireOrganizationUpdatePermission,
-  updateOrganizationController
-);
+organizationRoutes.put("/:id", requireOrganizationUpdatePermission, updateOrganizationController);
 
-organizationRoutes.patch(
-  "/:id",
-  requireOrganizationUpdatePermission,
-  updateOrganizationController
-);
+organizationRoutes.patch("/:id", requireOrganizationUpdatePermission, updateOrganizationController);
 
 organizationRoutes.delete(
   "/:id",
@@ -60,4 +52,3 @@ organizationRoutes.delete(
 );
 
 export default organizationRoutes;
-

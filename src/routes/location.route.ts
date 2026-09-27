@@ -52,4 +52,3 @@ locationRoutes.delete(
 );
 
 export default locationRoutes;
-
