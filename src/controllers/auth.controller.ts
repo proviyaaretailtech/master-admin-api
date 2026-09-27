@@ -9,14 +9,6 @@ export const registerController = asyncHandler(async (req: Request, res: Respons
   const body = registerSchema.parse(req.body);
   const result = await authService.register(body);
 
-  // Set httpOnly cookie if desired
-  res.cookie("token", result.token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
-
   res.status(HTTPSTATUS.CREATED).json({
     message: "User registered successfully",
     user: result.user,
@@ -28,14 +20,6 @@ export const loginController = asyncHandler(async (req: Request, res: Response) 
   const body = loginSchema.parse(req.body);
   const result = await authService.login(body);
 
-  // Set httpOnly cookie if desired
-  res.cookie("token", result.token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
-
   res.status(HTTPSTATUS.OK).json({
     message: "Login successful",
     user: result.user,
@@ -44,7 +28,6 @@ export const loginController = asyncHandler(async (req: Request, res: Response) 
 });
 
 export const logoutController = asyncHandler(async (_req: Request, res: Response) => {
-  res.clearCookie("token");
   res.status(HTTPSTATUS.OK).json({
     message: "Logout successful",
   });

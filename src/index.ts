@@ -1,7 +1,6 @@
 import "dotenv/config";
 import express, { Request, Response } from "express";
 import cors from "cors";
-import cookieParser from "cookie-parser";
 import { Env } from "./config/env.config";
 import {
   helmetSecurityMiddleware,
@@ -39,7 +38,6 @@ app.use(
 // 4. Strict Payload and Body Size Limits (Prevents JSON payload bomb / DoS attacks)
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
-app.use(cookieParser());
 
 // 5. Base Health & Info Route
 app.get("/", (_req: Request, res: Response) => {
