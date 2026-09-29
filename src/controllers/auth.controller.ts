@@ -45,4 +45,3 @@ export const getMeController = asyncHandler(async (req: Request, res: Response) 
     user,
   });
 });
-

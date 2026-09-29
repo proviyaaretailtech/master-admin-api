@@ -282,7 +282,9 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
       expect(res.body.user.role_details.id).toBe(restrictedRoleId);
       expect(res.body.user.isSuperAdmin).toBe(false);
 
-      const locFeature = res.body.user.permissions.find((f: any) => f.id === "feat_partner_locations");
+      const locFeature = res.body.user.permissions.find(
+        (f: any) => f.id === "feat_partner_locations"
+      );
       expect(locFeature).toBeDefined();
       expect(locFeature.accessLevel).toBe("none");
     });

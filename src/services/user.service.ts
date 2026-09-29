@@ -189,7 +189,12 @@ export class UserService {
     const targetUser = await this.getUserById(id);
 
     // Security Fix 1A: Block self role changes (prevent users from elevating themselves)
-    if (actor && actor.id === id && data.role_id !== undefined && data.role_id !== targetUser.role_id) {
+    if (
+      actor &&
+      actor.id === id &&
+      data.role_id !== undefined &&
+      data.role_id !== targetUser.role_id
+    ) {
       throw new ForbiddenException(
         "Privilege Escalation Prevention: You cannot modify your own security role"
       );
