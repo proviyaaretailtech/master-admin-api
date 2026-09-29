@@ -51,6 +51,9 @@ describe("Security Roles & Permissions API Integration Tests", () => {
     if (createdRoleId) {
       await query("DELETE FROM security_roles WHERE id = $1;", [createdRoleId]);
     }
+    await query(
+      "DELETE FROM security_roles WHERE key = 'super_admin_dup_key' OR key = 'test_compliance_officer';"
+    );
   });
 
   describe("Validation & Error Cases", () => {
@@ -74,11 +77,17 @@ describe("Security Roles & Permissions API Integration Tests", () => {
     });
 
     it("should return 400 when creating role with duplicate name (case-insensitive)", async () => {
+      // Query the existing super_admin role to test against its actual name in the database
+      const currentRole = await query<{ name: string }>(
+        "SELECT name FROM security_roles WHERE key = 'super_admin' LIMIT 1;"
+      );
+      const roleName = currentRole.rows[0]?.name || "Super Admin";
+
       const res = await request(app)
         .post("/api/roles")
         .set("Authorization", `Bearer ${authToken}`)
         .send({
-          name: "super admin",
+          name: roleName.toLowerCase(),
           key: "super_admin_dup_key",
         });
 
