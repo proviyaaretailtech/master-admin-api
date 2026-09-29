@@ -344,7 +344,6 @@ export class PlanService {
     const source = await this.getById(id);
     // time in seconds till now last 5 charaters
     const random = Date.now().toString(36).slice(-5);
-    const timestamp = Date.now().toString(36);
     const newPlanCode = `${source.plan_code}_${random}`;
     const newName = `${source.name} (Copy)`;
 

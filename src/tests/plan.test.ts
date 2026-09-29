@@ -212,8 +212,6 @@ describe("Commercial Plans API & Access Control Integration Tests", () => {
   });
 
   describe("Platform Modules CRUD & Plan Immutability (Point 5 Verification)", () => {
-    let testModuleId: string;
-
     it("POST /api/commercials/modules - creates a platform module", async () => {
       const res = await request(app)
         .post("/api/commercials/modules")
@@ -227,7 +225,6 @@ describe("Commercial Plans API & Access Control Integration Tests", () => {
       expect(res.status).toBe(201);
       expect(res.body.module).toBeDefined();
       expect(res.body.module.key).toBe("MODTST");
-      testModuleId = res.body.module.id;
     });
 
     it("ensures newly created module is NOT included in plans created beforehand without it", async () => {
