@@ -28,7 +28,7 @@ export const getUserByIdController = asyncHandler(async (req: Request, res: Resp
 export const updateUserController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
   const body = updateUserSchema.parse(req.body);
-  const updatedUser = await userService.updateUser(id, body);
+  const updatedUser = await userService.updateUser(id, body, req.user);
 
   res.status(HTTPSTATUS.OK).json({
     message: "User updated successfully",

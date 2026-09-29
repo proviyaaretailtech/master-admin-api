@@ -270,32 +270,32 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
     if (deleteTestOrgId) await query("DELETE FROM organizations WHERE id = $1;", [deleteTestOrgId]);
   });
 
-  describe("API Permissions Endpoint", () => {
-    it("GET /api/auth/permissions - returns current user's permissions and role info from security_roles", async () => {
+  describe("API Permissions & User Profile Verification", () => {
+    it("GET /api/auth/me - returns current user's permissions and role info from security_roles", async () => {
       const res = await request(app)
-        .get("/api/auth/permissions")
+        .get("/api/auth/me")
         .set("Authorization", `Bearer ${restrictedToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty("permissions");
-      expect(res.body).toHaveProperty("role");
-      expect(res.body.role.id).toBe(restrictedRoleId);
-      expect(res.body.isSuperAdmin).toBe(false);
+      expect(res.body.user).toHaveProperty("permissions");
+      expect(res.body.user).toHaveProperty("role_details");
+      expect(res.body.user.role_details.id).toBe(restrictedRoleId);
+      expect(res.body.user.isSuperAdmin).toBe(false);
 
-      const locFeature = res.body.permissions.find((f: any) => f.id === "feat_partner_locations");
+      const locFeature = res.body.user.permissions.find((f: any) => f.id === "feat_partner_locations");
       expect(locFeature).toBeDefined();
       expect(locFeature.accessLevel).toBe("none");
     });
 
-    it("GET /api/auth/permissions - returns zero permissions and isSuperAdmin=false for unassigned user", async () => {
+    it("GET /api/auth/me - returns zero permissions and isSuperAdmin=false for unassigned user", async () => {
       const res = await request(app)
-        .get("/api/auth/permissions")
+        .get("/api/auth/me")
         .set("Authorization", `Bearer ${unassignedToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.permissions).toEqual([]);
-      expect(res.body.role).toBeNull();
-      expect(res.body.isSuperAdmin).toBe(false);
+      expect(res.body.user.permissions).toEqual([]);
+      expect(res.body.user.role_details).toBeNull();
+      expect(res.body.user.isSuperAdmin).toBe(false);
     });
   });
 

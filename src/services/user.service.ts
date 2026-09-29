@@ -1,5 +1,5 @@
 import { query } from "../config/database.config";
-import { NotFoundException, BadRequestException } from "../utils/app-error";
+import { NotFoundException, BadRequestException, ForbiddenException } from "../utils/app-error";
 import { UpdateUserInput, GetUsersQueryInput } from "../validators/user.validator";
 import { UserModel } from "../@types/express";
 
@@ -182,11 +182,39 @@ export class UserService {
   }
 
   /**
-   * Updates an existing user without legacy role and panel columns
+   * Updates an existing user with privilege escalation safeguards (Check 4: Fix 1)
    */
-  async updateUser(id: string, data: UpdateUserInput): Promise<UserModel> {
-    // Check if user exists
-    await this.getUserById(id);
+  async updateUser(id: string, data: UpdateUserInput, actor?: UserModel): Promise<UserModel> {
+    // Check if target user exists
+    const targetUser = await this.getUserById(id);
+
+    // Security Fix 1A: Block self role changes (prevent users from elevating themselves)
+    if (actor && actor.id === id && data.role_id !== undefined && data.role_id !== targetUser.role_id) {
+      throw new ForbiddenException(
+        "Privilege Escalation Prevention: You cannot modify your own security role"
+      );
+    }
+
+    // Security Fix 1B: Prevent self-deactivation
+    if (
+      actor &&
+      actor.id === id &&
+      data.status !== undefined &&
+      data.status.toLowerCase() !== "active"
+    ) {
+      throw new BadRequestException("You cannot deactivate or suspend your own account");
+    }
+
+    // Security Fix 1C: Prevent non-super-admins from editing a super admin account
+    if (
+      (targetUser.role_details?.key === "super_admin" || targetUser.isSuperAdmin) &&
+      actor &&
+      !actor.isSuperAdmin
+    ) {
+      throw new ForbiddenException(
+        "Privilege Escalation Prevention: Only a Super Administrator can modify a Super Administrator account"
+      );
+    }
 
     // If email is being changed, ensure it's not taken by another user
     if (data.email) {
@@ -200,14 +228,26 @@ export class UserService {
       }
     }
 
-    // If role_id is provided, verify it exists in security_roles
+    // Security Fix 1D: If role_id is provided, verify it exists and enforce power boundaries
     if (data.role_id) {
-      const checkRole = await query<{ id: string }>(
-        "SELECT id FROM security_roles WHERE id = $1 LIMIT 1;",
+      const checkRole = await query<{ id: string; key: string; is_system: boolean }>(
+        "SELECT id, key, is_system FROM security_roles WHERE id = $1 LIMIT 1;",
         [data.role_id]
       );
       if (checkRole.rows.length === 0) {
         throw new BadRequestException(`Security role with ID '${data.role_id}' does not exist`);
+      }
+
+      const assignedRole = checkRole.rows[0];
+      // Disallow non-super-admins from assigning super_admin or system roles
+      if (
+        (assignedRole.key === "super_admin" || assignedRole.is_system) &&
+        actor &&
+        !actor.isSuperAdmin
+      ) {
+        throw new ForbiddenException(
+          "Privilege Escalation Prevention: Only a Super Administrator can assign system or super admin roles"
+        );
       }
     }
 
