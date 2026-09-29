@@ -34,7 +34,7 @@ export const createOrganizationSchema = z.object({
           "Status must be either 'Active', 'Inactive', 'Pending', 'Suspended', 'Draft', 'Approved', or 'Rejected'",
       }),
     })
-    .default("Active"),
+    .default("Draft"),
 });
 
 export const updateOrganizationSchema = z

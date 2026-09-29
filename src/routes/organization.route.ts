@@ -10,6 +10,7 @@ import { requireAuth } from "../middlewares/auth.middleware";
 import {
   requirePermission,
   requireAnyPermission,
+  requireOrganizationCreatePermission,
   requireOrganizationUpdatePermission,
 } from "../middlewares/permission.middleware";
 
@@ -18,11 +19,7 @@ const organizationRoutes = Router();
 // Protect all organization CRUD routes with JWT authentication
 organizationRoutes.use(requireAuth);
 
-organizationRoutes.post(
-  "/",
-  requirePermission("feat_org_360", "create_org", "full"),
-  createOrganizationController
-);
+organizationRoutes.post("/", requireOrganizationCreatePermission, createOrganizationController);
 
 organizationRoutes.get(
   "/",

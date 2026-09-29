@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ForbiddenException, UnauthorizedException } from "../utils/app-error";
-import { AccessLevel } from "../utils/permission-adapter";
+import { AccessLevel, FeaturePermission } from "../utils/permission-adapter";
 import { permissionService } from "../services/permission.service";
 import { requireAuth } from "./auth.middleware";
 
@@ -138,6 +138,133 @@ export const requireAnyPermission = (requirements: PermissionCheckOption[]) => {
 };
 
 /**
+ * Resolves the required partner review action for a given organization status.
+ * - 'Approved' / 'Active' -> 'approve_partner'
+ * - 'Rejected' / 'Suspended' / 'Inactive' -> 'reject_partner'
+ * - 'Pending' / 'Draft':
+ *     - on update: 'mark_under_review'
+ *     - on create: null (allowed by default for users with create_org permission)
+ */
+export const getRequiredPartnerReviewActionForStatus = (
+  status: string,
+  isCreate: boolean = false
+): string | null => {
+  const statusLower = String(status).toLowerCase();
+  if (statusLower === "approved" || statusLower === "active") {
+    return "approve_partner";
+  }
+  if (statusLower === "rejected" || statusLower === "suspended" || statusLower === "inactive") {
+    return "reject_partner";
+  }
+  if (statusLower === "pending" || statusLower === "draft") {
+    return isCreate ? null : "mark_under_review";
+  }
+  return isCreate ? null : "mark_under_review";
+};
+
+/**
+ * Validates that the user's permissions allow transitioning or creating an organization with the given status.
+ * Reused across requireOrganizationUpdatePermission and requireOrganizationCreatePermission.
+ */
+export const validateOrganizationStatusPermission = (
+  permissions: FeaturePermission[],
+  status: string,
+  isCreate: boolean = false
+): void => {
+  const requiredAction = getRequiredPartnerReviewActionForStatus(status, isCreate);
+  if (!requiredAction) {
+    return;
+  }
+
+  const hasAction = permissionService.hasPermission(
+    permissions,
+    "feat_partner_review",
+    requiredAction,
+    "full",
+    false
+  );
+
+  if (!hasAction) {
+    throw new ForbiddenException(
+      `Access Denied: Missing required permission for partner review action '${requiredAction}'`
+    );
+  }
+};
+
+/**
+ * Middleware that strictly validates permissions when creating an organization.
+ * - Requires feat_org_360 -> 'create_org' (full access).
+ * - If a status other than 'Draft' or 'Pending' is sent on create, requires the same
+ *   permission as on update:
+ *     - 'Approved' / 'Active' -> 'approve_partner'
+ *     - 'Rejected' / 'Suspended' / 'Inactive' -> 'reject_partner'
+ * - Super Admins bypass checks.
+ */
+export const requireOrganizationCreatePermission = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      await new Promise<void>((resolve, reject) => {
+        requireAuth(req, res, (err) => {
+          if (err) return reject(err);
+          resolve();
+        });
+      });
+    }
+
+    if (!req.user) {
+      throw new UnauthorizedException("Authentication required to access this resource");
+    }
+
+    let permissions = req.permissions;
+    let isSuperAdmin = false;
+
+    if (!permissions) {
+      const result = await permissionService.getUserPermissionsAndRole(req.user);
+      permissions = result.permissions;
+      isSuperAdmin = result.isSuperAdmin;
+      req.permissions = permissions;
+      req.userRole = result.role;
+      req.isSuperAdmin = isSuperAdmin;
+    } else {
+      isSuperAdmin = req.isSuperAdmin ?? req.userRole?.key === "super_admin";
+    }
+
+    if (isSuperAdmin) {
+      return next();
+    }
+
+    // 1. Must possess feat_org_360 -> create_org
+    const hasCreateOrg = permissionService.hasPermission(
+      permissions!,
+      "feat_org_360",
+      "create_org",
+      "full",
+      false
+    );
+
+    if (!hasCreateOrg) {
+      throw new ForbiddenException(
+        "Access Denied: Missing required permission for feature 'feat_org_360' (action 'create_org')"
+      );
+    }
+
+    // 2. Validate status permission if status is specified on create
+    const body = req.body || {};
+    if (body.status !== undefined) {
+      validateOrganizationStatusPermission(permissions!, body.status, true);
+    }
+
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Middleware that strictly validates permissions when modifying an organization.
  * - Changing status requires corresponding feat_partner_review actions:
  *   - 'Approved' / 'Active' -> 'approve_partner'
@@ -188,33 +315,7 @@ export const requireOrganizationUpdatePermission = async (
 
     // 1. Validate status transition permission
     if (body.status !== undefined) {
-      const statusLower = String(body.status).toLowerCase();
-      let requiredAction = "mark_under_review";
-      if (statusLower === "approved" || statusLower === "active") {
-        requiredAction = "approve_partner";
-      } else if (
-        statusLower === "rejected" ||
-        statusLower === "suspended" ||
-        statusLower === "inactive"
-      ) {
-        requiredAction = "reject_partner";
-      } else if (statusLower === "pending" || statusLower === "draft") {
-        requiredAction = "mark_under_review";
-      }
-
-      const hasAction = permissionService.hasPermission(
-        permissions!,
-        "feat_partner_review",
-        requiredAction,
-        "full",
-        false
-      );
-
-      if (!hasAction) {
-        throw new ForbiddenException(
-          `Access Denied: Missing required permission for partner review action '${requiredAction}'`
-        );
-      }
+      validateOrganizationStatusPermission(permissions!, body.status, false);
     }
 
     // 2. Validate contact / profile info modification permission

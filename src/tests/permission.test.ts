@@ -29,6 +29,16 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
   let contactEditorToken: string;
   let contactEditorRoleId: string;
 
+  let orgCreatorUserId: string;
+  let orgCreatorToken: string;
+  let orgCreatorRoleId: string;
+
+  let nonCreatorUserId: string;
+  let nonCreatorToken: string;
+  let nonCreatorRoleId: string;
+
+  const createdOrgIds: string[] = [];
+
   let testOrgId: string;
   let deleteTestOrgId: string;
 
@@ -250,6 +260,84 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
       userId: contactEditorUserId,
       email: ceUserRes.rows[0].email,
     });
+
+    // 8. Create Org Creator Role (feat_org_360 -> create_org enabled, view_directory enabled; feat_partner_review actions DISABLED)
+    const orgCreatorPermissions = serializeFeaturesToDb(
+      DEFAULT_FEATURES_TEMPLATE.map((f) => {
+        if (f.id === "feat_org_360") {
+          return {
+            ...f,
+            accessLevel: "full" as const,
+            actions: f.actions.map((a) => ({
+              ...a,
+              enabled: a.key === "create_org" || a.key === "view_directory",
+            })),
+          };
+        }
+        if (f.id === "feat_partner_review") {
+          return {
+            ...f,
+            accessLevel: "none" as const,
+            actions: f.actions.map((a) => ({ ...a, enabled: false })),
+          };
+        }
+        return f;
+      })
+    );
+
+    const ocRoleRes = await query<{ id: string }>(
+      `INSERT INTO security_roles (name, key, scope, description, is_active, permissions)
+       VALUES ('Org Creator Test', 'org_creator_test_role', 'One organization', 'Can create orgs, cannot review or approve', true, $1)
+       ON CONFLICT (key) DO UPDATE SET permissions = EXCLUDED.permissions RETURNING id;`,
+      [orgCreatorPermissions]
+    );
+    orgCreatorRoleId = ocRoleRes.rows[0].id;
+
+    const ocUserRes = await query<{ id: string; email: string }>(
+      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
+       VALUES ('OrgCreator', 'User', 'org-creator@test.com', '+15550009933', 'hash', 'Active', $1)
+       ON CONFLICT (email) DO UPDATE SET role_id = EXCLUDED.role_id RETURNING id, email;`,
+      [orgCreatorRoleId]
+    );
+    orgCreatorUserId = ocUserRes.rows[0].id;
+    orgCreatorToken = signJwtToken({
+      userId: orgCreatorUserId,
+      email: ocUserRes.rows[0].email,
+    });
+
+    // 9. Create Non-Creator Role (feat_org_360 accessLevel: 'none', create_org: false)
+    const nonCreatorPermissions = serializeFeaturesToDb(
+      DEFAULT_FEATURES_TEMPLATE.map((f) => {
+        if (f.id === "feat_org_360") {
+          return {
+            ...f,
+            accessLevel: "none" as const,
+            actions: f.actions.map((a) => ({ ...a, enabled: false })),
+          };
+        }
+        return f;
+      })
+    );
+
+    const ncRoleRes = await query<{ id: string }>(
+      `INSERT INTO security_roles (name, key, scope, description, is_active, permissions)
+       VALUES ('Non Creator Test', 'non_creator_test_role', 'One organization', 'Cannot create orgs', true, $1)
+       ON CONFLICT (key) DO UPDATE SET permissions = EXCLUDED.permissions RETURNING id;`,
+      [nonCreatorPermissions]
+    );
+    nonCreatorRoleId = ncRoleRes.rows[0].id;
+
+    const ncUserRes = await query<{ id: string; email: string }>(
+      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
+       VALUES ('NonCreator', 'User', 'non-creator@test.com', '+15550009922', 'hash', 'Active', $1)
+       ON CONFLICT (email) DO UPDATE SET role_id = EXCLUDED.role_id RETURNING id, email;`,
+      [nonCreatorRoleId]
+    );
+    nonCreatorUserId = ncUserRes.rows[0].id;
+    nonCreatorToken = signJwtToken({
+      userId: nonCreatorUserId,
+      email: ncUserRes.rows[0].email,
+    });
   });
 
   afterAll(async () => {
@@ -259,6 +347,8 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
     if (readOnlyUserId) await query("DELETE FROM users WHERE id = $1;", [readOnlyUserId]);
     if (reviewerUserId) await query("DELETE FROM users WHERE id = $1;", [reviewerUserId]);
     if (contactEditorUserId) await query("DELETE FROM users WHERE id = $1;", [contactEditorUserId]);
+    if (orgCreatorUserId) await query("DELETE FROM users WHERE id = $1;", [orgCreatorUserId]);
+    if (nonCreatorUserId) await query("DELETE FROM users WHERE id = $1;", [nonCreatorUserId]);
 
     if (restrictedRoleId)
       await query("DELETE FROM security_roles WHERE id = $1;", [restrictedRoleId]);
@@ -266,8 +356,16 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
     if (reviewerRoleId) await query("DELETE FROM security_roles WHERE id = $1;", [reviewerRoleId]);
     if (contactEditorRoleId)
       await query("DELETE FROM security_roles WHERE id = $1;", [contactEditorRoleId]);
+    if (orgCreatorRoleId)
+      await query("DELETE FROM security_roles WHERE id = $1;", [orgCreatorRoleId]);
+    if (nonCreatorRoleId)
+      await query("DELETE FROM security_roles WHERE id = $1;", [nonCreatorRoleId]);
 
     if (deleteTestOrgId) await query("DELETE FROM organizations WHERE id = $1;", [deleteTestOrgId]);
+
+    for (const orgId of createdOrgIds) {
+      await query("DELETE FROM organizations WHERE id = $1;", [orgId]);
+    }
   });
 
   describe("API Permissions & User Profile Verification", () => {
@@ -464,6 +562,160 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       deleteTestOrgId = ""; // already deleted
+    });
+  });
+
+  describe("Permission Gating: Organization Creation Lifecycle & Review Enforcement (POST /api/organizations)", () => {
+    it("creates an organization defaulting to 'Draft' when status is omitted by user with create_org", async () => {
+      const res = await request(app)
+        .post("/api/organizations")
+        .set("Authorization", `Bearer ${orgCreatorToken}`)
+        .send({
+          business_name: "Draft Default Lifecycle Org",
+          domain: "Retail",
+          email: "lifecycle-draft@test.com",
+          phone_number: "+15550009944",
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty("organization");
+      expect(res.body.organization.status).toBe("Draft");
+      expect(res.body.organization.business_name).toBe("Draft Default Lifecycle Org");
+      createdOrgIds.push(res.body.organization.id);
+    });
+
+    it("returns 403 Forbidden when user with only create_org attempts to create org with status 'Approved'", async () => {
+      const res = await request(app)
+        .post("/api/organizations")
+        .set("Authorization", `Bearer ${orgCreatorToken}`)
+        .send({
+          business_name: "Illegal Approved Org Attempt",
+          domain: "Retail",
+          email: "illegal-approved@test.com",
+          phone_number: "+15550009955",
+          status: "Approved",
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toContain("Access Denied");
+      expect(res.body.message).toContain("approve_partner");
+    });
+
+    it("returns 403 Forbidden when user with only create_org attempts to create org with status 'Active'", async () => {
+      const res = await request(app)
+        .post("/api/organizations")
+        .set("Authorization", `Bearer ${orgCreatorToken}`)
+        .send({
+          business_name: "Illegal Active Org Attempt",
+          domain: "Retail",
+          email: "illegal-active@test.com",
+          phone_number: "+15550009966",
+          status: "Active",
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toContain("Access Denied");
+      expect(res.body.message).toContain("approve_partner");
+    });
+
+    it("returns 403 Forbidden when user with only create_org attempts to create org with status 'Rejected'", async () => {
+      const res = await request(app)
+        .post("/api/organizations")
+        .set("Authorization", `Bearer ${orgCreatorToken}`)
+        .send({
+          business_name: "Illegal Rejected Org Attempt",
+          domain: "Retail",
+          email: "illegal-rejected@test.com",
+          phone_number: "+15550009977",
+          status: "Rejected",
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toContain("Access Denied");
+      expect(res.body.message).toContain("reject_partner");
+    });
+
+    it("allows user with only create_org to create org with explicit status 'Draft'", async () => {
+      const res = await request(app)
+        .post("/api/organizations")
+        .set("Authorization", `Bearer ${orgCreatorToken}`)
+        .send({
+          business_name: "Explicit Draft Org",
+          domain: "Retail",
+          email: "explicit-draft@test.com",
+          phone_number: "+15550009988",
+          status: "Draft",
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.organization.status).toBe("Draft");
+      createdOrgIds.push(res.body.organization.id);
+    });
+
+    it("allows user with only create_org to create org with explicit status 'Pending'", async () => {
+      const res = await request(app)
+        .post("/api/organizations")
+        .set("Authorization", `Bearer ${orgCreatorToken}`)
+        .send({
+          business_name: "Explicit Pending Org",
+          domain: "Retail",
+          email: "explicit-pending@test.com",
+          phone_number: "+15550009999",
+          status: "Pending",
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.organization.status).toBe("Pending");
+      createdOrgIds.push(res.body.organization.id);
+    });
+
+    it("allows Super Admin to bypass checks and create organization with status 'Approved'", async () => {
+      const res = await request(app)
+        .post("/api/organizations")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({
+          business_name: "SuperAdmin Direct Approved Org",
+          domain: "Technology",
+          email: "superadmin-approved@test.com",
+          phone_number: "+15550009900",
+          status: "Approved",
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.organization.status).toBe("Approved");
+      createdOrgIds.push(res.body.organization.id);
+    });
+
+    it("returns 403 Forbidden when user without create_org attempts to create organization", async () => {
+      const res = await request(app)
+        .post("/api/organizations")
+        .set("Authorization", `Bearer ${nonCreatorToken}`)
+        .send({
+          business_name: "Unauthorized Creator Attempt",
+          domain: "Retail",
+          email: "non-creator-unauth@test.com",
+          phone_number: "+15550009901",
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toContain("Access Denied");
+      expect(res.body.message).toContain("create_org");
+    });
+
+    it("returns 403 Forbidden when unassigned user attempts to create organization", async () => {
+      const res = await request(app)
+        .post("/api/organizations")
+        .set("Authorization", `Bearer ${unassignedToken}`)
+        .send({
+          business_name: "Unassigned Creator Attempt",
+          domain: "Retail",
+          email: "unassigned-unauth@test.com",
+          phone_number: "+15550009902",
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toContain("Access Denied");
+      expect(res.body.message).toContain("create_org");
     });
   });
 });
