@@ -11,7 +11,7 @@ const featurePermissionSchema = z.object({
   id: z.string().trim().min(1),
   name: z.string().optional().default(""),
   category: z
-    .enum(["partner_detail", "organization", "access_control", "system"])
+    .enum(["commercials", "partner_detail", "organization", "access_control", "system"])
     .optional()
     .default("system"),
   pagePath: z.string().optional().default(""),
