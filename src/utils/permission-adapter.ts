@@ -17,7 +17,7 @@ export interface GranularAction {
 export interface FeaturePermission {
   id: string;
   name: string;
-  category: "partner_detail" | "organization" | "access_control" | "system";
+  category: "commercials" | "partner_detail" | "organization" | "access_control" | "system";
   pagePath: string;
   description: string;
   accessLevel: AccessLevel;
@@ -149,6 +149,64 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
         key: "export_org_csv",
         label: "Export Organization Records",
         description: "Download filtered partner listings as CSV/Excel",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_commercial_plans",
+    name: "Commercials: Platform Plans & Modules",
+    category: "commercials",
+    pagePath: "/commercials/plans",
+    description:
+      "Control access to SaaS tier pricing, provisioning quotas (locations & user limits), platform module bundle selections, draft revisions, and live plan publishing.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_plans",
+        label: "View Platform Plans",
+        description:
+          "Browse the SaaS plans table, inspect pricing, filter by currency/status, and view assigned tenant counts",
+        enabled: true,
+      },
+      {
+        key: "create_plan",
+        label: "Create New Plan",
+        description:
+          "Access the plan creation wizard, configure initial tier name, billing cadence, and trial periods",
+        enabled: true,
+      },
+      {
+        key: "edit_plan",
+        label: "Edit Plan & Limits",
+        description:
+          "Modify plan pricing, update hard provision limits (max locations, admin seats), and change effective dates",
+        enabled: true,
+      },
+      {
+        key: "manage_modules",
+        label: "Configure Included Modules",
+        description: "Select or deselect platform modules bundled into a plan",
+        enabled: true,
+      },
+      {
+        key: "publish_plan",
+        label: "Publish Plan Impact",
+        description:
+          "Preview live tenant impact modal and request/publish plan drafts into active production tiers",
+        enabled: true,
+      },
+      {
+        key: "duplicate_plan",
+        label: "Duplicate Plan",
+        description: "Clone an existing published or retired plan into a new working draft version",
+        enabled: true,
+      },
+      {
+        key: "retire_plan",
+        label: "Retire / Archive Plan",
+        description:
+          "Mark plans as Retired to grandfather existing tenants while restricting new organization assignments",
         enabled: true,
       },
     ],
