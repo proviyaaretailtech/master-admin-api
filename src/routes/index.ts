@@ -5,6 +5,8 @@ import userRoutes from "./user.route";
 import organizationRoutes from "./organization.route";
 import locationRoutes from "./location.route";
 import roleRoutes from "./role.route";
+import planRoutes from "./plan.route";
+import moduleRoutes from "./module.route";
 
 const router = Router();
 
@@ -17,5 +19,7 @@ router.use("/users", userRoutes);
 router.use("/organizations", organizationRoutes);
 router.use("/roles", roleRoutes);
 router.use("/security-roles", roleRoutes);
+router.use("/commercials/plans", planRoutes);
+router.use("/commercials/modules", moduleRoutes);
 
 export default router;
