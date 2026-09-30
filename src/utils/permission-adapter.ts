@@ -212,6 +212,106 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
     ],
   },
   {
+    id: "feat_commercial_packs",
+    name: "Commercials: Feature Packs",
+    category: "commercials",
+    pagePath: "/commercials/packs",
+    description:
+      "Control access to commercial feature add-on packs, pricing configuration, tier plan compatibility, and live pack publishing.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_packs",
+        label: "View Feature Packs",
+        description:
+          "Browse the commercial feature packs table, inspect pricing and assigned tenant counts",
+        enabled: true,
+      },
+      {
+        key: "create_pack",
+        label: "Create Feature Pack",
+        description:
+          "Configure new add-on feature packs with pricing and compatible tier plans",
+        enabled: true,
+      },
+      {
+        key: "edit_pack",
+        label: "Edit Feature Pack",
+        description:
+          "Modify pack pricing, extended limits, effective dates, and plan compatibility",
+        enabled: true,
+      },
+      {
+        key: "publish_pack",
+        label: "Publish Feature Pack",
+        description: "Publish draft feature packs into active production availability",
+        enabled: true,
+      },
+      {
+        key: "retire_pack",
+        label: "Retire Feature Pack",
+        description: "Archive or retire feature packs to restrict new tenant adoption",
+        enabled: true,
+      },
+      {
+        key: "delete_pack",
+        label: "Delete Draft Pack",
+        description: "Permanently delete draft feature packs not assigned to any organizations",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_commercial_addons",
+    name: "Commercials: Optional Add-ons",
+    category: "commercials",
+    pagePath: "/commercials/add-ons",
+    description:
+      "Control access to SaaS optional commercial add-ons, pricing configuration, tier plan compatibility, and add-on publishing/retiring.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_addons",
+        label: "View Optional Add-ons",
+        description:
+          "Browse commercial add-ons catalog, inspect pricing, category, compatibility and active allocations",
+        enabled: true,
+      },
+      {
+        key: "create_addon",
+        label: "Create Add-on",
+        description:
+          "Access add-on creation editor, configure metadata, pricing, cadence and purchase limits",
+        enabled: true,
+      },
+      {
+        key: "edit_addon",
+        label: "Edit Add-on",
+        description:
+          "Modify add-on metadata, description, pricing, purchase quantity limits and plan compatibility",
+        enabled: true,
+      },
+      {
+        key: "publish_addon",
+        label: "Publish Add-on",
+        description: "Publish draft add-on options into active catalog for tenant provisioning",
+        enabled: true,
+      },
+      {
+        key: "retire_addon",
+        label: "Retire Add-on",
+        description: "Retire active add-ons to restrict new purchases while preserving existing client subscriptions",
+        enabled: true,
+      },
+      {
+        key: "delete_addon",
+        label: "Delete Draft Add-on",
+        description: "Permanently remove unpublished draft add-ons not assigned to any organizations",
+        enabled: true,
+      },
+    ],
+  },
+  {
     id: "feat_users_mgmt",
     name: "Access Control: Users Management",
     category: "access_control",
