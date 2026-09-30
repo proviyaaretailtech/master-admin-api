@@ -122,7 +122,11 @@ export class PackService {
     }
 
     // Compatibility filter (checks if array contains or matches plan)
-    if (queryInput.compatibility && queryInput.compatibility.trim() && queryInput.compatibility !== "All") {
+    if (
+      queryInput.compatibility &&
+      queryInput.compatibility.trim() &&
+      queryInput.compatibility !== "All"
+    ) {
       const comp = queryInput.compatibility.trim();
       whereConditions.push(`(p.compatible_plans::text ILIKE $${paramIndex})`);
       values.push(`%${comp}%`);
@@ -188,7 +192,9 @@ export class PackService {
       [packCodeNormalized]
     );
     if (existing.rows.length > 0) {
-      throw new BadRequestException(`A commercial pack with code '${packCodeNormalized}' already exists`);
+      throw new BadRequestException(
+        `A commercial pack with code '${packCodeNormalized}' already exists`
+      );
     }
 
     const compatiblePlansJson = JSON.stringify(data.compatible_plans || []);
@@ -232,13 +238,18 @@ export class PackService {
   async updatePack(id: string, data: UpdatePackInput, userId?: string): Promise<PackDto> {
     const existingPack = await this.getPackById(id);
 
-    if (data.pack_code && data.pack_code.trim().toLowerCase() !== existingPack.pack_code.toLowerCase()) {
+    if (
+      data.pack_code &&
+      data.pack_code.trim().toLowerCase() !== existingPack.pack_code.toLowerCase()
+    ) {
       const codeCheck = await query<{ id: string }>(
         "SELECT id FROM commercial_packs WHERE LOWER(pack_code) = LOWER($1) AND id != $2 LIMIT 1;",
         [data.pack_code.trim(), id]
       );
       if (codeCheck.rows.length > 0) {
-        throw new BadRequestException(`A commercial pack with code '${data.pack_code.trim()}' already exists`);
+        throw new BadRequestException(
+          `A commercial pack with code '${data.pack_code.trim()}' already exists`
+        );
       }
     }
 

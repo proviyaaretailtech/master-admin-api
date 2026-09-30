@@ -131,14 +131,23 @@ export class AddonService {
     }
 
     // Status filter
-    if (queryInput.status && queryInput.status.trim() && queryInput.status !== "All Active" && queryInput.status !== "All") {
+    if (
+      queryInput.status &&
+      queryInput.status.trim() &&
+      queryInput.status !== "All Active" &&
+      queryInput.status !== "All"
+    ) {
       whereConditions.push(`LOWER(a.status) = LOWER($${paramIndex})`);
       values.push(queryInput.status.trim());
       paramIndex++;
     }
 
     // Compatibility filter
-    if (queryInput.compatibility && queryInput.compatibility.trim() && queryInput.compatibility !== "All") {
+    if (
+      queryInput.compatibility &&
+      queryInput.compatibility.trim() &&
+      queryInput.compatibility !== "All"
+    ) {
       const comp = queryInput.compatibility.trim();
       whereConditions.push(`(a.compatible_plans::text ILIKE $${paramIndex})`);
       values.push(`%${comp}%`);
@@ -252,7 +261,9 @@ export class AddonService {
       [addonCodeNormalized]
     );
     if (existing.rows.length > 0) {
-      throw new BadRequestException(`A commercial add-on with code '${addonCodeNormalized}' already exists`);
+      throw new BadRequestException(
+        `A commercial add-on with code '${addonCodeNormalized}' already exists`
+      );
     }
 
     const compatiblePlansJson = JSON.stringify(data.compatible_plans || []);
@@ -300,13 +311,18 @@ export class AddonService {
   async updateAddon(id: string, data: UpdateAddonInput, userId?: string): Promise<AddonDto> {
     const existingAddon = await this.getAddonById(id);
 
-    if (data.addon_code && data.addon_code.trim().toLowerCase() !== existingAddon.addon_code.toLowerCase()) {
+    if (
+      data.addon_code &&
+      data.addon_code.trim().toLowerCase() !== existingAddon.addon_code.toLowerCase()
+    ) {
       const codeCheck = await query<{ id: string }>(
         "SELECT id FROM commercial_addons WHERE LOWER(addon_code) = LOWER($1) AND id != $2 LIMIT 1;",
         [data.addon_code.trim(), id]
       );
       if (codeCheck.rows.length > 0) {
-        throw new BadRequestException(`A commercial add-on with code '${data.addon_code.trim()}' already exists`);
+        throw new BadRequestException(
+          `A commercial add-on with code '${data.addon_code.trim()}' already exists`
+        );
       }
     }
 

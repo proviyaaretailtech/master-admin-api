@@ -24,10 +24,7 @@ export const createPackSchema = z.object({
   price: z.coerce.number().min(0, "Price must be non-negative").default(0),
   currency: z.string().trim().min(2).max(10).default("INR"),
   cadence: z.string().trim().default("Monthly"),
-  effective_date: z
-    .string()
-    .optional()
-    .nullable(),
+  effective_date: z.string().optional().nullable(),
   extended_limits: z.string().trim().optional().default(""),
   prerequisite_note: z.string().trim().optional().default(""),
   included_feature_title: z.string().trim().optional().default(""),
