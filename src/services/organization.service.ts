@@ -17,39 +17,62 @@ export interface PaginatedOrganizationsResult {
   };
 }
 
+/**
+ * Organizations live in the shared (canonical) `organizations` table. This service keeps the
+ * control-plane API shape (business_name, domain, status, email, phone_number) and maps it:
+ *   business_name <- name, domain <- business_domain, status <- control_status,
+ *   email <- contact_email, phone_number <- contact_phone.
+ * Creation goes through the database function master_create_organization (default location,
+ * billing/dispatch settings, optional trial subscription, owner invitation) so every app sees
+ * the same, complete organization.
+ */
+const SELECT_COLUMNS = `id, name AS business_name, business_domain AS domain, control_status AS status,
+  contact_email AS email, contact_phone AS phone_number, created_at, updated_at`;
+
 // Whitelist of valid database columns for ORDER BY (Prevents SQL Injection)
 const ALLOWED_SORT_COLUMNS: Record<string, string> = {
-  business_name: "business_name",
-  domain: "domain",
-  status: "status",
-  email: "email",
-  phone_number: "phone_number",
+  business_name: "name",
+  domain: "business_domain",
+  status: "control_status",
+  email: "contact_email",
+  phone_number: "contact_phone",
   created_at: "created_at",
   updated_at: "updated_at",
 };
 
+function friendlyUniqueError(err: any, email?: string, phone?: string): never {
+  if (err?.code === "23505") {
+    if (err.constraint?.includes("email")) {
+      throw new BadRequestException(`An organization with email '${email ?? ""}' already exists`);
+    }
+    if (err.constraint?.includes("phone")) {
+      throw new BadRequestException(
+        `An organization with phone number '${phone ?? ""}' already exists`
+      );
+    }
+  }
+  throw err;
+}
+
 export class OrganizationService {
   /**
-   * Creates a new organization with strict unique email and phone validations
+   * Creates a new organization (and its default location, settings and optional trial subscription).
    */
-  async createOrganization(data: CreateOrganizationInput): Promise<OrganizationModel> {
+  async createOrganization(
+    data: CreateOrganizationInput & { plan_code?: string; owner_email?: string }
+  ): Promise<OrganizationModel> {
     const emailNormalized = data.email.trim().toLowerCase();
     const phoneNormalized = data.phone_number.trim();
 
-    // 1. Pre-check: Unique Email
     const emailCheck = await query<{ id: string }>(
-      "SELECT id FROM organizations WHERE LOWER(email) = LOWER($1) LIMIT 1;",
+      "SELECT id FROM organizations WHERE lower(contact_email) = lower($1) LIMIT 1;",
       [emailNormalized]
     );
     if (emailCheck.rows.length > 0) {
-      throw new BadRequestException(
-        `An organization with email '${emailNormalized}' already exists`
-      );
+      throw new BadRequestException(`An organization with email '${emailNormalized}' already exists`);
     }
-
-    // 2. Pre-check: Unique Phone Number
     const phoneCheck = await query<{ id: string }>(
-      "SELECT id FROM organizations WHERE phone_number = $1 LIMIT 1;",
+      "SELECT id FROM organizations WHERE contact_phone = $1 LIMIT 1;",
       [phoneNormalized]
     );
     if (phoneCheck.rows.length > 0) {
@@ -58,38 +81,27 @@ export class OrganizationService {
       );
     }
 
-    // 3. Insert new organization with parameterized query
     try {
-      const insertSql = `
-        INSERT INTO organizations (business_name, domain, status, email, phone_number)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, business_name, domain, status, email, phone_number, created_at, updated_at;
-      `;
-
-      const result = await query<OrganizationModel>(insertSql, [
-        data.business_name.trim(),
-        data.domain.trim(),
-        data.status || "Draft",
-        emailNormalized,
-        phoneNormalized,
-      ]);
-
-      return result.rows[0];
+      const created = await query<{ result: { organization_id: string } }>(
+        "SELECT public.master_create_organization($1::jsonb) AS result;",
+        [
+          JSON.stringify({
+            name: data.business_name.trim(),
+            business_domain: data.domain.trim(),
+            control_status: data.status || "Draft",
+            contact_email: emailNormalized,
+            contact_phone: phoneNormalized,
+            plan_code: data.plan_code,
+            owner_email: data.owner_email,
+          }),
+        ]
+      );
+      return this.getOrganizationById(created.rows[0].result.organization_id);
     } catch (err: any) {
-      // Catch concurrent unique constraint violations (PostgreSQL error 23505)
-      if (err.code === "23505") {
-        if (err.detail?.includes("email") || err.constraint?.includes("email")) {
-          throw new BadRequestException(
-            `An organization with email '${emailNormalized}' already exists`
-          );
-        }
-        if (err.detail?.includes("phone") || err.constraint?.includes("phone")) {
-          throw new BadRequestException(
-            `An organization with phone number '${phoneNormalized}' already exists`
-          );
-        }
+      if (typeof err?.message === "string" && err.message.startsWith("MASTER_BAD_PLAN")) {
+        throw new BadRequestException(err.message.replace("MASTER_BAD_PLAN: ", ""));
       }
-      throw err;
+      return friendlyUniqueError(err, emailNormalized, phoneNormalized);
     }
   }
 
@@ -106,32 +118,26 @@ export class OrganizationService {
     const conditions: string[] = [];
     const values: any[] = [];
 
-    // Search filter across business_name, domain, email, and phone_number
     if (params.search && params.search.trim().length > 0) {
       values.push(`%${params.search.trim()}%`);
       const idx = values.length;
       conditions.push(
-        `(business_name ILIKE $${idx} OR domain ILIKE $${idx} OR email ILIKE $${idx} OR phone_number ILIKE $${idx})`
+        `(name ILIKE $${idx} OR business_domain ILIKE $${idx} OR contact_email ILIKE $${idx} OR contact_phone ILIKE $${idx})`
       );
     }
 
-    // Status filter
     if (params.status && params.status !== "All Statuses" && params.status !== "All") {
       const statusTrimmed = params.status.trim();
       if (statusTrimmed.toLowerCase() === "approved") {
-        conditions.push(`(status ILIKE 'Approved' OR status ILIKE 'Active')`);
+        conditions.push(`control_status IN ('Approved', 'Active')`);
       } else if (statusTrimmed.toLowerCase() === "rejected") {
-        conditions.push(
-          `(status ILIKE 'Rejected' OR status ILIKE 'Suspended' OR status ILIKE 'Inactive')`
-        );
+        conditions.push(`control_status IN ('Rejected', 'Suspended', 'Inactive')`);
       } else {
         values.push(statusTrimmed);
-        const idx = values.length;
-        conditions.push(`status ILIKE $${idx}`);
+        conditions.push(`control_status ILIKE $${values.length}`);
       }
     }
 
-    // Domain filter
     if (
       params.domain &&
       params.domain !== "All Types" &&
@@ -139,48 +145,37 @@ export class OrganizationService {
       params.domain !== "All"
     ) {
       values.push(params.domain.trim());
-      const idx = values.length;
-      conditions.push(`domain ILIKE $${idx}`);
+      conditions.push(`business_domain ILIKE $${values.length}`);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    // Total count query
-    const countSql = `SELECT COUNT(*)::int as total FROM organizations ${whereClause};`;
-    const countResult = await query<{ total: number }>(countSql, values);
+    const countResult = await query<{ total: number }>(
+      `SELECT COUNT(*)::int as total FROM organizations ${whereClause};`,
+      values
+    );
     const total = countResult.rows[0]?.total || 0;
 
-    // Sort column and direction sanitization (strictly whitelist verified)
     const rawSortBy = (params.sortBy || "created_at").toLowerCase();
     const sortColumn = ALLOWED_SORT_COLUMNS[rawSortBy] || "created_at";
     const sortDirection = (params.sortOrder || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
-    // Paginated data query
     values.push(limit);
     const limitIdx = values.length;
     values.push(offset);
     const offsetIdx = values.length;
 
-    const dataSql = `
-      SELECT id, business_name, domain, status, email, phone_number, created_at, updated_at
-      FROM organizations
-      ${whereClause}
-      ORDER BY ${sortColumn} ${sortDirection}
-      LIMIT $${limitIdx} OFFSET $${offsetIdx};
-    `;
-
-    const result = await query<OrganizationModel>(dataSql, values);
+    const result = await query<OrganizationModel>(
+      `SELECT ${SELECT_COLUMNS}
+       FROM organizations
+       ${whereClause}
+       ORDER BY ${sortColumn} ${sortDirection}
+       LIMIT $${limitIdx} OFFSET $${offsetIdx};`,
+      values
+    );
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
-    return {
-      organizations: result.rows,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages,
-      },
-    };
+    return { organizations: result.rows, pagination: { total, page, limit, totalPages } };
   }
 
   /**
@@ -188,17 +183,12 @@ export class OrganizationService {
    */
   async getOrganizationById(id: string): Promise<OrganizationModel> {
     const result = await query<OrganizationModel>(
-      `SELECT id, business_name, domain, status, email, phone_number, created_at, updated_at
-       FROM organizations
-       WHERE id = $1
-       LIMIT 1;`,
+      `SELECT ${SELECT_COLUMNS} FROM organizations WHERE id = $1 LIMIT 1;`,
       [id]
     );
-
     if (result.rows.length === 0) {
       throw new NotFoundException(`Organization with ID '${id}' not found`);
     }
-
     return result.rows[0];
   }
 
@@ -206,14 +196,12 @@ export class OrganizationService {
    * Updates existing organization by UUID with conflict checks and partial updates
    */
   async updateOrganization(id: string, data: UpdateOrganizationInput): Promise<OrganizationModel> {
-    // 1. Verify existence
     await this.getOrganizationById(id);
 
-    // 2. If email is being modified, ensure no collision with another organization
     if (data.email) {
       const emailNormalized = data.email.trim().toLowerCase();
       const checkEmail = await query<{ id: string }>(
-        "SELECT id FROM organizations WHERE LOWER(email) = LOWER($1) AND id != $2 LIMIT 1;",
+        "SELECT id FROM organizations WHERE lower(contact_email) = lower($1) AND id != $2 LIMIT 1;",
         [emailNormalized, id]
       );
       if (checkEmail.rows.length > 0) {
@@ -222,12 +210,10 @@ export class OrganizationService {
         );
       }
     }
-
-    // 3. If phone_number is being modified, ensure no collision with another organization
     if (data.phone_number) {
       const phoneNormalized = data.phone_number.trim();
       const checkPhone = await query<{ id: string }>(
-        "SELECT id FROM organizations WHERE phone_number = $1 AND id != $2 LIMIT 1;",
+        "SELECT id FROM organizations WHERE contact_phone = $1 AND id != $2 LIMIT 1;",
         [phoneNormalized, id]
       );
       if (checkPhone.rows.length > 0) {
@@ -237,85 +223,58 @@ export class OrganizationService {
       }
     }
 
-    // 4. Dynamically build parameterized UPDATE
     const setClauses: string[] = [];
     const values: any[] = [];
-
-    if (data.business_name !== undefined) {
-      values.push(data.business_name.trim());
-      setClauses.push(`business_name = $${values.length}`);
-    }
-
-    if (data.domain !== undefined) {
-      values.push(data.domain.trim());
-      setClauses.push(`domain = $${values.length}`);
-    }
-
-    if (data.status !== undefined) {
-      values.push(data.status);
-      setClauses.push(`status = $${values.length}`);
-    }
-
-    if (data.email !== undefined) {
-      values.push(data.email.trim().toLowerCase());
-      setClauses.push(`email = $${values.length}`);
-    }
-
-    if (data.phone_number !== undefined) {
-      values.push(data.phone_number.trim());
-      setClauses.push(`phone_number = $${values.length}`);
-    }
-
+    const set = (column: string, value: unknown) => {
+      values.push(value);
+      setClauses.push(`${column} = $${values.length}`);
+    };
+    if (data.business_name !== undefined) set("name", data.business_name.trim());
+    if (data.domain !== undefined) set("business_domain", data.domain.trim());
+    if (data.status !== undefined) set("control_status", data.status);
+    if (data.email !== undefined) set("contact_email", data.email.trim().toLowerCase());
+    if (data.phone_number !== undefined) set("contact_phone", data.phone_number.trim());
+    if (setClauses.length === 0) return this.getOrganizationById(id);
     setClauses.push("updated_at = now()");
 
     values.push(id);
-    const idIdx = values.length;
-
     try {
-      const updateSql = `
-        UPDATE organizations
-        SET ${setClauses.join(", ")}
-        WHERE id = $${idIdx}
-        RETURNING id, business_name, domain, status, email, phone_number, created_at, updated_at;
-      `;
-
-      const result = await query<OrganizationModel>(updateSql, values);
-
+      const result = await query<OrganizationModel>(
+        `UPDATE organizations SET ${setClauses.join(", ")} WHERE id = $${values.length}
+         RETURNING ${SELECT_COLUMNS};`,
+        values
+      );
       if (result.rows.length === 0) {
         throw new NotFoundException(`Organization with ID '${id}' not found`);
       }
-
       return result.rows[0];
     } catch (err: any) {
-      if (err.code === "23505") {
-        if (err.detail?.includes("email") || err.constraint?.includes("email")) {
-          throw new BadRequestException("An organization with this email already exists");
-        }
-        if (err.detail?.includes("phone") || err.constraint?.includes("phone")) {
-          throw new BadRequestException("An organization with this phone number already exists");
-        }
-      }
-      throw err;
+      return friendlyUniqueError(err, data.email, data.phone_number);
     }
   }
 
   /**
-   * Deletes an organization by UUID
+   * Deletes an organization by UUID. An organization that has traded (orders or payments) is part
+   * of the financial record and is never hard-deleted: deactivate it instead.
    */
   async deleteOrganization(
     id: string
   ): Promise<{ success: boolean; message: string; deletedId: string }> {
-    // 1. Verify existence
     await this.getOrganizationById(id);
 
-    // 2. Perform parameterized delete
-    await query("DELETE FROM organizations WHERE id = $1;", [id]);
+    const traded = await query<{ has_orders: boolean }>(
+      `SELECT (EXISTS (SELECT 1 FROM orders WHERE organization_id = $1)
+            OR EXISTS (SELECT 1 FROM payments WHERE organization_id = $1)) AS has_orders;`,
+      [id]
+    );
+    if (traded.rows[0]?.has_orders) {
+      throw new BadRequestException(
+        "This organization has orders or payments and cannot be deleted. Set its status to Inactive instead."
+      );
+    }
 
-    return {
-      success: true,
-      message: "Organization deleted successfully",
-      deletedId: id,
-    };
+    await query("DELETE FROM organizations WHERE id = $1;", [id]);
+    return { success: true, message: "Organization deleted successfully", deletedId: id };
   }
 }
 

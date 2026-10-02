@@ -32,7 +32,7 @@ interface PackDbRow {
   description: string | null;
   status: string;
   price: string | number;
-  currency: string;
+  currency_code: string;
   cadence: string;
   effective_date: string | null;
   extended_limits: string | null;
@@ -78,7 +78,7 @@ function mapRowToDto(row: PackDbRow): PackDto {
     description: row.description || "",
     status: row.status as "Draft" | "Published" | "Retired",
     price: Number(row.price) || 0,
-    currency: row.currency || "INR",
+    currency: row.currency_code || "INR",
     cadence: row.cadence || "Monthly",
     effective_date: row.effective_date,
     extended_limits: row.extended_limits || "",
@@ -202,7 +202,7 @@ export class PackService {
 
     const insertSql = `
       INSERT INTO commercial_packs (
-        name, pack_code, description, status, price, currency, cadence,
+        name, pack_code, description, status, price, currency_code, cadence,
         effective_date, extended_limits, prerequisite_note,
         included_feature_title, included_feature_subtitle,
         compatible_plans, required_modules, created_by, updated_by
@@ -278,7 +278,7 @@ export class PackService {
       values.push(data.price);
     }
     if (data.currency !== undefined) {
-      updateFields.push(`currency = $${paramIndex++}`);
+      updateFields.push(`currency_code = $${paramIndex++}`);
       values.push(data.currency);
     }
     if (data.cadence !== undefined) {

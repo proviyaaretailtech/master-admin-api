@@ -1,10 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import { UnauthorizedException, ForbiddenException } from "../utils/app-error";
-import { verifyJwtToken } from "../utils/jwt";
-import { query } from "../config/database.config";
-import { UserModel } from "../@types/express";
-import { permissionService } from "../services/permission.service";
+import { supabaseClient } from "../config/supabase.config";
+import { authService } from "../services/auth.service";
 
+/**
+ * Requires a valid Supabase access token belonging to an Active platform administrator.
+ */
 export const requireAuth = async (
   req: Request,
   _res: Response,
@@ -12,59 +13,30 @@ export const requireAuth = async (
 ): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
-    let token: string | undefined;
-
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      token = authHeader.split(" ")[1];
-    }
-
+    const token = authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
     if (!token) {
       throw new UnauthorizedException("Authentication token is missing");
     }
 
-    let payload: { userId: string; email: string };
-    try {
-      payload = verifyJwtToken(token);
-    } catch {
+    const { data, error } = await supabaseClient.auth.getUser(token);
+    if (error || !data.user) {
       throw new UnauthorizedException("Invalid or expired authentication token");
     }
 
-    // Query user securely from Supabase users table
-    const result = await query<UserModel>(
-      `SELECT u.id, u.first_name, u.last_name, u.email, u.phone_number,
-              COALESCE(u.status, 'Active') as status,
-              u.role_id,
-              u.created_at, u.updated_at
-       FROM users u
-       WHERE u.id = $1
-       LIMIT 1;`,
-      [payload.userId]
-    );
-
-    if (result.rows.length === 0) {
-      throw new UnauthorizedException("User account not found or deactivated");
+    const staff = await authService.findPlatformAdmin(data.user.id);
+    if (!staff) {
+      throw new ForbiddenException("This account does not have access to the control plane");
     }
-
-    const user = result.rows[0];
-
-    // Verify account active status
-    if (user.status && user.status.toLowerCase() !== "active") {
+    if ((staff.status ?? "").toLowerCase() !== "active") {
       throw new ForbiddenException("User account has been deactivated or suspended");
     }
 
-    // Resolve user's role and permission matrix
-    const { role, permissions, isSuperAdmin } =
-      await permissionService.getUserPermissionsAndRole(user);
-    user.role_details = role;
-    user.permissions = permissions;
-    user.isSuperAdmin = isSuperAdmin;
-
+    const user = await authService.hydrate(staff);
     req.user = user;
     req.token = token;
-    req.permissions = permissions;
-    req.userRole = role;
-    req.isSuperAdmin = isSuperAdmin;
-
+    req.permissions = user.permissions;
+    req.userRole = user.role_details;
+    req.isSuperAdmin = user.isSuperAdmin;
     next();
   } catch (error) {
     next(error);

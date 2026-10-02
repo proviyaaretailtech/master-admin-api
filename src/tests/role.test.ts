@@ -2,58 +2,35 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import app from "../index";
 import { query } from "../config/database.config";
-import { signJwtToken } from "../utils/jwt";
+import { createStaff, cleanup } from "./helpers/testkit";
 
 describe("Security Roles & Permissions API Integration Tests", () => {
   let authToken: string;
-  let testUserId: string;
   let createdRoleId: string;
+  const staffIds: string[] = [];
 
   beforeAll(async () => {
     process.env.NODE_ENV = "test";
 
     // Clean up any remnants from previous tests
     await query(
-      "DELETE FROM security_roles WHERE key = 'super_admin_dup_key' OR key = 'test_compliance_officer';"
+      "DELETE FROM platform_roles WHERE key = 'super_admin_dup_key' OR key = 'test_compliance_officer';"
     );
 
-    // Ensure super_admin role exists
-    const saRole = await query<{ id: string; name: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, is_system, permissions)
-       VALUES ('Super Admin', 'super_admin', 'All organizations', 'Root Super Admin', true, true, '')
-       ON CONFLICT (key) DO UPDATE SET is_system = true RETURNING id, name;`
-    );
-    const saRoleId = saRole.rows[0].id;
-
-    // 1. Get or create test user for auth token
-    const userRes = await query<{ id: string; email: string }>(
-      "SELECT id, email FROM users ORDER BY created_at ASC LIMIT 1;"
-    );
-
-    if (userRes.rows.length > 0) {
-      testUserId = userRes.rows[0].id;
-      await query("UPDATE users SET role_id = $1 WHERE id = $2;", [saRoleId, testUserId]);
-      authToken = signJwtToken({ userId: testUserId, email: userRes.rows[0].email });
-    } else {
-      const newUser = await query<{ id: string; email: string }>(
-        `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-         VALUES ('Test', 'Admin', 'role-tester@onlatur.com', '+15551112233', 'hashed_pass', 'Active', $1)
-         RETURNING id, email;`,
-        [saRoleId]
-      );
-      testUserId = newUser.rows[0].id;
-      authToken = signJwtToken({ userId: testUserId, email: newUser.rows[0].email });
-    }
+    const sa = await createStaff({ roleKey: "super_admin" });
+    staffIds.push(sa.id);
+    authToken = sa.token;
   });
 
   afterAll(async () => {
     // Cleanup any created role
     if (createdRoleId) {
-      await query("DELETE FROM security_roles WHERE id = $1;", [createdRoleId]);
+      await query("DELETE FROM platform_roles WHERE id = $1;", [createdRoleId]);
     }
     await query(
-      "DELETE FROM security_roles WHERE key = 'super_admin_dup_key' OR key = 'test_compliance_officer';"
+      "DELETE FROM platform_roles WHERE key = 'super_admin_dup_key' OR key = 'test_compliance_officer';"
     );
+    await cleanup({ staffIds });
   });
 
   describe("Validation & Error Cases", () => {
@@ -79,7 +56,7 @@ describe("Security Roles & Permissions API Integration Tests", () => {
     it("should return 400 when creating role with duplicate name (case-insensitive)", async () => {
       // Query the existing super_admin role to test against its actual name in the database
       const currentRole = await query<{ name: string }>(
-        "SELECT name FROM security_roles WHERE key = 'super_admin' LIMIT 1;"
+        "SELECT name FROM platform_roles WHERE key = 'super_admin' LIMIT 1;"
       );
       const roleName = currentRole.rows[0]?.name || "Super Admin";
 

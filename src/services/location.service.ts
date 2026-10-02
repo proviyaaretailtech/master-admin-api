@@ -1,5 +1,5 @@
 import { query } from "../config/database.config";
-import { NotFoundException } from "../utils/app-error";
+import { NotFoundException, BadRequestException } from "../utils/app-error";
 import {
   CreateLocationInput,
   UpdateLocationInput,
@@ -22,11 +22,40 @@ export interface PaginatedLocationsResult {
   };
 }
 
+/**
+ * Locations live in the shared `locations` table (canonical). The control-plane API keeps its shape:
+ *   type <- kind (Restaurant, Cloud Kitchen, Delivery Hub, Warehouse, Retail Outlet, Other),
+ *   status <- initcap(status), time_zone <- timezone, currency <- "INR (₹)" style label of currency_code,
+ *   org_id <- organization_id, last_sync <- last_sync_at.
+ */
+const TYPE_TO_KIND: Record<string, string> = {
+  Restaurant: "restaurant",
+  "Cloud Kitchen": "cloud_kitchen",
+  "Delivery Hub": "hub",
+  Warehouse: "warehouse",
+  "Retail Outlet": "store",
+  Other: "other",
+};
+const CURRENCY_SYMBOLS: Record<string, string> = { INR: "₹", USD: "$", EUR: "€", GBP: "£", AED: "AED" };
+const toCurrencyCode = (label: string | undefined): string => (label || "INR").trim().slice(0, 3).toUpperCase();
+
+const LOCATION_COLUMNS = `id, organization_id AS org_id, name, area, code,
+  CASE kind WHEN 'restaurant' THEN 'Restaurant' WHEN 'cloud_kitchen' THEN 'Cloud Kitchen'
+            WHEN 'hub' THEN 'Delivery Hub' WHEN 'warehouse' THEN 'Warehouse'
+            WHEN 'store' THEN 'Retail Outlet' ELSE 'Other' END AS type,
+  initcap(status) AS status, timezone AS time_zone, currency_code, last_sync_at AS last_sync, created_at, updated_at`;
+
+function withCurrencyLabel(row: any): LocationModel {
+  const { currency_code, ...rest } = row;
+  const code = currency_code || "INR";
+  return { ...rest, currency: CURRENCY_SYMBOLS[code] && code === "INR" ? `INR (${CURRENCY_SYMBOLS[code]})` : code };
+}
+
 const ALLOWED_SORT_COLUMNS: Record<string, string> = {
   name: "name",
   code: "code",
   area: "area",
-  type: "type",
+  type: "kind",
   status: "status",
   created_at: "created_at",
   updated_at: "updated_at",
@@ -38,7 +67,8 @@ export class LocationService {
    */
   async ensureOrganizationExists(orgId: string): Promise<OrganizationModel> {
     const orgCheck = await query<OrganizationModel>(
-      `SELECT id, business_name, domain, status, email, phone_number, created_at, updated_at
+      `SELECT id, name AS business_name, business_domain AS domain, control_status AS status,
+              contact_email AS email, contact_phone AS phone_number, created_at, updated_at
        FROM organizations
        WHERE id = $1
        LIMIT 1;`,
@@ -59,23 +89,32 @@ export class LocationService {
     await this.ensureOrganizationExists(orgId);
 
     const insertSql = `
-      INSERT INTO org_locations (org_id, name, area, code, type, status, time_zone, currency)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING id, org_id, name, area, code, type, status, time_zone, currency, last_sync, created_at, updated_at;
+      INSERT INTO locations (organization_id, name, area, code, kind, status, timezone, currency_code)
+      VALUES ($1, $2, $3, COALESCE($4, 'L' || upper(substr(md5(random()::text), 1, 6))), $5, $6, $7, $8)
+      RETURNING ${LOCATION_COLUMNS};
     `;
 
-    const result = await query<LocationModel>(insertSql, [
-      orgId,
-      data.name.trim(),
-      data.area ? data.area.trim() : null,
-      data.code ? data.code.trim().toUpperCase() : null,
-      data.type,
-      data.status,
-      data.time_zone,
-      data.currency,
-    ]);
-
-    return result.rows[0];
+    try {
+      const result = await query<LocationModel>(insertSql, [
+        orgId,
+        data.name.trim(),
+        data.area ? data.area.trim() : null,
+        data.code ? data.code.trim().toUpperCase() : null,
+        TYPE_TO_KIND[data.type] || "other",
+        String(data.status).toLowerCase(),
+        data.time_zone,
+        toCurrencyCode(data.currency),
+      ]);
+      return withCurrencyLabel(result.rows[0]);
+    } catch (err: any) {
+      if (typeof err?.message === "string" && err.message.startsWith("PLAN_LIMIT")) {
+        throw new BadRequestException(err.message.replace("PLAN_LIMIT: ", ""));
+      }
+      if (err?.code === "23505") {
+        throw new BadRequestException(`A location with code '${data.code}' already exists in this organization`);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -87,14 +126,14 @@ export class LocationService {
   ): Promise<PaginatedLocationsResult> {
     const org = await this.ensureOrganizationExists(orgId);
 
-    const conditions: string[] = ["org_id = $1"];
+    const conditions: string[] = ["organization_id = $1"];
     const values: unknown[] = [orgId];
     let paramIndex = 2;
 
     // Optional Search Filter (Name, Area, Code, Type)
     if (params.search) {
       conditions.push(
-        `(LOWER(name) LIKE $${paramIndex} OR LOWER(COALESCE(area, '')) LIKE $${paramIndex} OR LOWER(COALESCE(code, '')) LIKE $${paramIndex} OR LOWER(type) LIKE $${paramIndex})`
+        `(LOWER(name) LIKE $${paramIndex} OR LOWER(COALESCE(area, '')) LIKE $${paramIndex} OR LOWER(COALESCE(code, '')) LIKE $${paramIndex} OR LOWER(kind) LIKE $${paramIndex})`
       );
       values.push(`%${params.search.toLowerCase()}%`);
       paramIndex++;
@@ -103,21 +142,21 @@ export class LocationService {
     // Optional Status Filter
     if (params.status) {
       conditions.push(`status = $${paramIndex}`);
-      values.push(params.status);
+      values.push(String(params.status).toLowerCase());
       paramIndex++;
     }
 
     // Optional Type Filter
     if (params.type) {
-      conditions.push(`type = $${paramIndex}`);
-      values.push(params.type);
+      conditions.push(`kind = $${paramIndex}`);
+      values.push(TYPE_TO_KIND[params.type as string] || "other");
       paramIndex++;
     }
 
     const whereClause = conditions.join(" AND ");
 
     // 1. Get Total Count
-    const countSql = `SELECT COUNT(*) AS total FROM org_locations WHERE ${whereClause};`;
+    const countSql = `SELECT COUNT(*) AS total FROM locations WHERE ${whereClause};`;
     const countResult = await query<{ total: string }>(countSql, values);
     const total = parseInt(countResult.rows[0]?.total || "0", 10);
 
@@ -131,8 +170,8 @@ export class LocationService {
     const sortOrder = params.sortOrder === "asc" ? "ASC" : "DESC";
 
     const fetchSql = `
-      SELECT id, org_id, name, area, code, type, status, time_zone, currency, last_sync, created_at, updated_at
-      FROM org_locations
+      SELECT ${LOCATION_COLUMNS}
+      FROM locations
       WHERE ${whereClause}
       ORDER BY ${sortColumn} ${sortOrder}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1};
@@ -142,7 +181,7 @@ export class LocationService {
     const result = await query<LocationModel>(fetchSql, values);
 
     return {
-      locations: result.rows,
+      locations: result.rows.map((r) => withCurrencyLabel(r)),
       organization: {
         id: org.id,
         business_name: org.business_name,
@@ -164,9 +203,9 @@ export class LocationService {
     await this.ensureOrganizationExists(orgId);
 
     const result = await query<LocationModel>(
-      `SELECT id, org_id, name, area, code, type, status, time_zone, currency, last_sync, created_at, updated_at
-       FROM org_locations
-       WHERE id = $1 AND org_id = $2
+      `SELECT ${LOCATION_COLUMNS}
+       FROM locations
+       WHERE id = $1 AND organization_id = $2
        LIMIT 1;`,
       [locationId, orgId]
     );
@@ -177,7 +216,7 @@ export class LocationService {
       );
     }
 
-    return result.rows[0];
+    return withCurrencyLabel(result.rows[0]);
   }
 
   /**
@@ -208,20 +247,20 @@ export class LocationService {
       values.push(data.code ? data.code.trim().toUpperCase() : null);
     }
     if (data.type !== undefined) {
-      updateFields.push(`type = $${paramIndex++}`);
-      values.push(data.type);
+      updateFields.push(`kind = $${paramIndex++}`);
+      values.push(TYPE_TO_KIND[data.type as string] || "other");
     }
     if (data.status !== undefined) {
       updateFields.push(`status = $${paramIndex++}`);
-      values.push(data.status);
+      values.push(String(data.status).toLowerCase());
     }
     if (data.time_zone !== undefined) {
-      updateFields.push(`time_zone = $${paramIndex++}`);
+      updateFields.push(`timezone = $${paramIndex++}`);
       values.push(data.time_zone);
     }
     if (data.currency !== undefined) {
-      updateFields.push(`currency = $${paramIndex++}`);
-      values.push(data.currency);
+      updateFields.push(`currency_code = $${paramIndex++}`);
+      values.push(toCurrencyCode(data.currency));
     }
 
     // Always update updated_at
@@ -229,14 +268,21 @@ export class LocationService {
 
     values.push(locationId, orgId);
     const updateSql = `
-      UPDATE org_locations
+      UPDATE locations
       SET ${updateFields.join(", ")}
-      WHERE id = $${paramIndex++} AND org_id = $${paramIndex++}
-      RETURNING id, org_id, name, area, code, type, status, time_zone, currency, last_sync, created_at, updated_at;
+      WHERE id = $${paramIndex++} AND organization_id = $${paramIndex++}
+      RETURNING ${LOCATION_COLUMNS};
     `;
 
-    const result = await query<LocationModel>(updateSql, values);
-    return result.rows[0];
+    try {
+      const result = await query<LocationModel>(updateSql, values);
+      return withCurrencyLabel(result.rows[0]);
+    } catch (err: any) {
+      if (err?.code === "23505") {
+        throw new BadRequestException("A location with this code already exists in this organization");
+      }
+      throw err;
+    }
   }
 
   /**
@@ -246,7 +292,11 @@ export class LocationService {
     // Verify location exists first
     await this.getLocationById(orgId, locationId);
 
-    await query("DELETE FROM org_locations WHERE id = $1 AND org_id = $2;", [locationId, orgId]);
+    const used = await query<{ n: number }>("SELECT count(*)::int AS n FROM orders WHERE location_id = $1;", [locationId]);
+    if ((used.rows[0]?.n || 0) > 0) {
+      throw new BadRequestException("This location has orders and cannot be deleted. Set its status to Inactive instead.");
+    }
+    await query("DELETE FROM locations WHERE id = $1 AND organization_id = $2;", [locationId, orgId]);
   }
 }
 

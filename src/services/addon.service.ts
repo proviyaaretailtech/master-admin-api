@@ -39,7 +39,7 @@ interface AddonDbRow {
   status: string;
   version: string;
   price: string | number;
-  currency: string;
+  currency_code: string;
   cadence: string;
   unit_label: string | null;
   pricing_subtitle: string | null;
@@ -79,7 +79,7 @@ function mapRowToDto(row: AddonDbRow): AddonDto {
     status: (row.status as "Draft" | "Published" | "Retired") || "Draft",
     version: row.version || "v1.0",
     price: Number(row.price) || 0,
-    currency: row.currency || "INR",
+    currency: row.currency_code || "INR",
     cadence: row.cadence || "Monthly",
     unit_label: row.unit_label || "location",
     pricing_subtitle: row.pricing_subtitle || "",
@@ -271,7 +271,7 @@ export class AddonService {
     const insertSql = `
       INSERT INTO commercial_addons (
         name, addon_code, description, category, status, version,
-        price, currency, cadence, unit_label, pricing_subtitle,
+        price, currency_code, cadence, unit_label, pricing_subtitle,
         effective_date, min_quantity, max_quantity, compatible_plans,
         billing_sync_status, entitlement_validation_status, tax_compliance_status,
         created_by, updated_by
@@ -359,7 +359,7 @@ export class AddonService {
       values.push(data.price);
     }
     if (data.currency !== undefined) {
-      updateFields.push(`currency = $${paramIndex++}`);
+      updateFields.push(`currency_code = $${paramIndex++}`);
       values.push(data.currency);
     }
     if (data.cadence !== undefined) {

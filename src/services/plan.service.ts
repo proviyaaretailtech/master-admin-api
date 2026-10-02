@@ -98,8 +98,8 @@ export class PlanService {
         WHERE status = 'Active'
         GROUP BY plan_id
       ) sub_counts ON p.id = sub_counts.plan_id
-      LEFT JOIN users u1 ON p.created_by = u1.id
-      LEFT JOIN users u2 ON p.updated_by = u2.id
+      LEFT JOIN auth.users u1 ON p.created_by = u1.id
+      LEFT JOIN auth.users u2 ON p.updated_by = u2.id
       ${whereClause}
       ORDER BY p.created_at DESC
       LIMIT $${idx} OFFSET $${idx + 1}
@@ -114,6 +114,7 @@ export class PlanService {
     const plans = await Promise.all(
       res.rows.map(async (row) => ({
         ...row,
+        currency: (row as any).currency_code || "INR",
         price: parseFloat(row.price as any) || 0,
         assignments_count: Number(row.assignments_count || 0),
         modules: await this.sanitizeModules(row.modules),
@@ -142,8 +143,8 @@ export class PlanService {
          WHERE status = 'Active'
          GROUP BY plan_id
        ) sub_counts ON p.id = sub_counts.plan_id
-       LEFT JOIN users u1 ON p.created_by = u1.id
-       LEFT JOIN users u2 ON p.updated_by = u2.id
+       LEFT JOIN auth.users u1 ON p.created_by = u1.id
+       LEFT JOIN auth.users u2 ON p.updated_by = u2.id
        WHERE p.id = $1`,
       [id]
     );
@@ -155,6 +156,7 @@ export class PlanService {
     const row = res.rows[0];
     return {
       ...row,
+      currency: (row as any).currency_code || "INR",
       price: parseFloat(row.price as any) || 0,
       assignments_count: Number(row.assignments_count || 0),
       modules: await this.sanitizeModules(row.modules),
@@ -177,7 +179,7 @@ export class PlanService {
 
     const res = await query<CommercialPlanModel>(
       `INSERT INTO commercial_plans (
-        plan_code, name, version, version_type, status, price, currency,
+        plan_code, name, version, version_type, status, price, currency_code,
         cadence, tax_note, trial_days, effective_date, locations_limit,
         users_limit, is_unlimited_locations, is_unlimited_users, modules,
         created_by, updated_by
@@ -207,6 +209,7 @@ export class PlanService {
 
     return {
       ...res.rows[0],
+      currency: (res.rows[0] as any).currency_code || "INR",
       price: parseFloat(res.rows[0].price as any) || 0,
       assignments_count: 0,
       modules: sanitizedModules,
@@ -258,7 +261,7 @@ export class PlanService {
       values.push(data.price);
     }
     if (data.currency !== undefined) {
-      updates.push(`currency = $${idx++}`);
+      updates.push(`currency_code = $${idx++}`);
       values.push(data.currency);
     }
     if (data.cadence !== undefined) {

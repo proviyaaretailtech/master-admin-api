@@ -1,6 +1,7 @@
 import { query } from "../config/database.config";
+import { supabaseAdmin } from "../config/supabase.config";
 import { NotFoundException, BadRequestException, ForbiddenException } from "../utils/app-error";
-import { UpdateUserInput, GetUsersQueryInput } from "../validators/user.validator";
+import { UpdateUserInput, GetUsersQueryInput, CreateUserInput } from "../validators/user.validator";
 import { UserModel } from "../@types/express";
 
 export interface PaginatedUsersResult {
@@ -107,8 +108,9 @@ export class UserService {
     // Total count query
     const countSql = `
       SELECT COUNT(u.id)::int as total
-      FROM users u
-      LEFT JOIN security_roles sr ON u.role_id = sr.id
+      FROM (SELECT pa.user_id AS id, pa.first_name, pa.last_name, au.email, pa.phone_number, pa.status, pa.role_id, pa.created_at, pa.updated_at
+              FROM platform_admins pa JOIN auth.users au ON au.id = pa.user_id) u
+      LEFT JOIN platform_roles sr ON u.role_id = sr.id
       ${whereClause};
     `;
     const countResult = await query<{ total: number }>(countSql, values);
@@ -131,8 +133,10 @@ export class UserService {
              sr.is_active as role_is_active,
              sr.is_system as role_is_system,
              u.created_at, u.updated_at
-      FROM users u
-      LEFT JOIN security_roles sr ON u.role_id = sr.id
+      FROM (SELECT pa.user_id AS id, COALESCE(pa.first_name, '') AS first_name, COALESCE(pa.last_name, '') AS last_name, au.email,
+                   COALESCE(pa.phone_number, '') AS phone_number, pa.status, pa.role_id, pa.created_at, pa.updated_at
+              FROM platform_admins pa JOIN auth.users au ON au.id = pa.user_id) u
+      LEFT JOIN platform_roles sr ON u.role_id = sr.id
       ${whereClause}
       ORDER BY u.created_at DESC
       LIMIT $${limitIdx} OFFSET $${offsetIdx};
@@ -167,8 +171,10 @@ export class UserService {
               sr.is_active as role_is_active,
               sr.is_system as role_is_system,
               u.created_at, u.updated_at
-       FROM users u
-       LEFT JOIN security_roles sr ON u.role_id = sr.id
+       FROM (SELECT pa.user_id AS id, COALESCE(pa.first_name, '') AS first_name, COALESCE(pa.last_name, '') AS last_name, au.email,
+                    COALESCE(pa.phone_number, '') AS phone_number, pa.status, pa.role_id, pa.created_at, pa.updated_at
+               FROM platform_admins pa JOIN auth.users au ON au.id = pa.user_id) u
+       LEFT JOIN platform_roles sr ON u.role_id = sr.id
        WHERE u.id = $1
        LIMIT 1;`,
       [id]
@@ -179,6 +185,49 @@ export class UserService {
     }
 
     return mapUserRowToModel(result.rows[0]);
+  }
+
+  /**
+   * Creates a platform staff account (Supabase auth user + platform_admins row). Only an administrator
+   * who may manage users reaches this; assigning a system or super-admin role needs a Super Administrator.
+   */
+  async createUser(data: CreateUserInput, actor?: UserModel): Promise<UserModel> {
+    if (data.role_id) {
+      const role = await query<{ key: string; is_system: boolean }>(
+        "SELECT key, is_system FROM platform_roles WHERE id = $1 LIMIT 1;",
+        [data.role_id]
+      );
+      if (role.rows.length === 0) {
+        throw new BadRequestException(`Security role with ID '${data.role_id}' does not exist`);
+      }
+      if ((role.rows[0].key === "super_admin" || role.rows[0].is_system) && !(actor && actor.isSuperAdmin)) {
+        throw new ForbiddenException(
+          "Privilege Escalation Prevention: Only a Super Administrator can assign system or super admin roles"
+        );
+      }
+    }
+
+    const email = data.email.trim().toLowerCase();
+    const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password: data.password,
+      email_confirm: true,
+    });
+    if (error || !created.user) {
+      throw new BadRequestException(error?.message || "Could not create the account");
+    }
+
+    try {
+      await query(
+        `INSERT INTO platform_admins (user_id, role_id, first_name, last_name, phone_number, status)
+         VALUES ($1, $2, $3, $4, $5, 'Active');`,
+        [created.user.id, data.role_id ?? null, data.first_name.trim(), data.last_name.trim(), data.phone_number?.trim() ?? null]
+      );
+    } catch (err) {
+      await supabaseAdmin.auth.admin.deleteUser(created.user.id);
+      throw err;
+    }
+    return this.getUserById(created.user.id);
   }
 
   /**
@@ -224,7 +273,7 @@ export class UserService {
     // If email is being changed, ensure it's not taken by another user
     if (data.email) {
       const checkEmail = await query<{ id: string }>(
-        "SELECT id FROM users WHERE email = $1 AND id != $2 LIMIT 1;",
+        "SELECT id FROM auth.users WHERE lower(email) = lower($1) AND id != $2 LIMIT 1;",
         [data.email, id]
       );
 
@@ -236,7 +285,7 @@ export class UserService {
     // Security Fix 1D: If role_id is provided, verify it exists and enforce power boundaries
     if (data.role_id) {
       const checkRole = await query<{ id: string; key: string; is_system: boolean }>(
-        "SELECT id, key, is_system FROM security_roles WHERE id = $1 LIMIT 1;",
+        "SELECT id, key, is_system FROM platform_roles WHERE id = $1 LIMIT 1;",
         [data.role_id]
       );
       if (checkRole.rows.length === 0) {
@@ -270,11 +319,6 @@ export class UserService {
       setClauses.push(`last_name = $${values.length}`);
     }
 
-    if (data.email !== undefined) {
-      values.push(data.email.trim().toLowerCase());
-      setClauses.push(`email = $${values.length}`);
-    }
-
     if (data.phone_number !== undefined) {
       values.push(data.phone_number.trim());
       setClauses.push(`phone_number = $${values.length}`);
@@ -290,21 +334,24 @@ export class UserService {
       setClauses.push(`role_id = $${values.length}`);
     }
 
-    setClauses.push("updated_at = now()");
+    if (data.email !== undefined) {
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(id, {
+        email: data.email.trim().toLowerCase(),
+        email_confirm: true,
+      });
+      if (error) throw new BadRequestException(`Could not change the email: ${error.message}`);
+    }
 
-    values.push(id);
-    const idIdx = values.length;
-
-    const updateSql = `
-      UPDATE users
-      SET ${setClauses.join(", ")}
-      WHERE id = $${idIdx}
-      RETURNING id;
-    `;
-
-    const result = await query<{ id: string }>(updateSql, values);
-    if (result.rows.length === 0) {
-      throw new BadRequestException("Failed to update user");
+    if (setClauses.length > 0) {
+      setClauses.push("updated_at = now()");
+      values.push(id);
+      const result = await query<{ user_id: string }>(
+        `UPDATE platform_admins SET ${setClauses.join(", ")} WHERE user_id = $${values.length} RETURNING user_id;`,
+        values
+      );
+      if (result.rows.length === 0) {
+        throw new BadRequestException("Failed to update user");
+      }
     }
 
     // Return refreshed user model with joined security role
@@ -316,9 +363,18 @@ export class UserService {
    */
   async deleteUser(id: string): Promise<{ success: boolean; message: string }> {
     // Check if user exists
-    await this.getUserById(id);
+    const target = await this.getUserById(id);
+    if (target.role_details?.key === "super_admin") {
+      const supers = await query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM platform_admins pa JOIN platform_roles r ON r.id = pa.role_id WHERE r.key = 'super_admin' AND pa.status = 'Active';`
+      );
+      if ((supers.rows[0]?.n ?? 0) <= 1) {
+        throw new ForbiddenException("The last active Super Administrator cannot be deleted");
+      }
+    }
 
-    await query("DELETE FROM users WHERE id = $1;", [id]);
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
+    if (error) throw new BadRequestException(`Could not delete the user: ${error.message}`);
 
     return {
       success: true,

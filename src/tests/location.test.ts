@@ -1,68 +1,28 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import app from "../index";
-import { query } from "../config/database.config";
-import { signJwtToken } from "../utils/jwt";
+import { createStaff, createOrg, cleanup } from "./helpers/testkit";
 
 describe("Organization Locations API Integration Tests", () => {
   let authToken: string;
-  let testUserId: string;
   let testOrgId: string;
   let createdLocationId: string;
+  const staffIds: string[] = [];
 
   beforeAll(async () => {
     process.env.NODE_ENV = "test";
 
-    // Ensure super_admin role exists
-    const saRole = await query<{ id: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, is_system, permissions)
-       VALUES ('Super Admin', 'super_admin', 'All organizations', 'Root Super Admin', true, true, '')
-       ON CONFLICT (key) DO UPDATE SET is_system = true RETURNING id;`
-    );
-    const saRoleId = saRole.rows[0].id;
+    const sa = await createStaff({ roleKey: "super_admin" });
+    staffIds.push(sa.id);
+    authToken = sa.token;
 
-    // 1. Get or create test user for auth token
-    const userRes = await query<{ id: string; email: string }>(
-      "SELECT id, email FROM users ORDER BY created_at ASC LIMIT 1;"
-    );
-
-    if (userRes.rows.length > 0) {
-      testUserId = userRes.rows[0].id;
-      await query("UPDATE users SET role_id = $1 WHERE id = $2;", [saRoleId, testUserId]);
-      authToken = signJwtToken({ userId: testUserId, email: userRes.rows[0].email });
-    } else {
-      const newUser = await query<{ id: string; email: string }>(
-        `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-         VALUES ('Test', 'Admin', 'location-tester@onlatur.com', '+15551119999', 'hashed_pass', 'Active', $1)
-         RETURNING id, email;`,
-        [saRoleId]
-      );
-      testUserId = newUser.rows[0].id;
-      authToken = signJwtToken({ userId: testUserId, email: newUser.rows[0].email });
-    }
-
-    // 2. Ensure we have an active test organization to associate locations with
-    const orgRes = await query<{ id: string }>(
-      "SELECT id FROM organizations ORDER BY created_at ASC LIMIT 1;"
-    );
-
-    if (orgRes.rows.length > 0) {
-      testOrgId = orgRes.rows[0].id;
-    } else {
-      const newOrg = await query<{ id: string }>(
-        `INSERT INTO organizations (business_name, domain, status, email, phone_number)
-         VALUES ('Test Org For Locations', 'Test Domain', 'Active', 'test-loc@org.com', '+15559990001')
-         RETURNING id;`
-      );
-      testOrgId = newOrg.rows[0].id;
-    }
+    // A dedicated organization to associate locations with (comes with a default MAIN location)
+    testOrgId = await createOrg({ name: "Test Org For Locations" });
   });
 
   afterAll(async () => {
-    // Cleanup any created test location
-    if (createdLocationId && testOrgId) {
-      await query("DELETE FROM org_locations WHERE id = $1;", [createdLocationId]);
-    }
+    // Deleting the organization cascades to its locations
+    await cleanup({ orgIds: [testOrgId], staffIds });
   });
 
   describe("Validation & Error Cases", () => {

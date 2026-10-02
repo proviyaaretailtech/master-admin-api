@@ -1,126 +1,66 @@
-import bcrypt from "bcryptjs";
 import { query } from "../config/database.config";
-import { BadRequestException, UnauthorizedException } from "../utils/app-error";
-import { RegisterInput, LoginInput } from "../validators/auth.validator";
-import { signJwtToken } from "../utils/jwt";
+import { supabaseClient } from "../config/supabase.config";
+import { UnauthorizedException, ForbiddenException } from "../utils/app-error";
+import { LoginInput } from "../validators/auth.validator";
 import { UserModel } from "../@types/express";
 
+/**
+ * Platform staff are Supabase auth users with an Active row in platform_admins. Sign-in is done by
+ * Supabase Auth (passwords never touch this app); the access token it returns is the bearer token.
+ * There is no public registration: accounts are created by an existing administrator (user.service)
+ * or by the bootstrap script.
+ */
 export class AuthService {
-  /**
-   * Registers a new user with hashed password in Supabase PostgreSQL
-   */
-  async register(data: RegisterInput) {
-    // 1. Check if user already exists
-    const checkUser = await query<UserModel>("SELECT id FROM users WHERE email = $1 LIMIT 1;", [
-      data.email,
-    ]);
-
-    if (checkUser.rows.length > 0) {
-      throw new BadRequestException("An account with this email address already exists");
-    }
-
-    // 2. Hash password with bcrypt
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(data.password, saltRounds);
-
-    // 3. Insert into Supabase 'users' table using parameterized query (SQL-injection proof)
-    const result = await query<UserModel>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, first_name, last_name, email, phone_number, created_at, updated_at;`,
-      [data.first_name, data.last_name, data.email, data.phone_number, hashedPassword]
-    );
-
-    const newUser = result.rows[0];
-
-    // 4. Generate custom JWT token
-    const token = signJwtToken({
-      userId: newUser.id,
-      email: newUser.email,
-    });
-
-    return {
-      user: newUser,
-      token,
-    };
-  }
-
-  /**
-   * Authenticates user via email and bcrypt password check
-   */
   async login(data: LoginInput) {
-    // 1. Find user by email
-    const result = await query<UserModel>(
-      `SELECT id, first_name, last_name, email, phone_number, password,
-              COALESCE(status, 'Active') as status,
-              role_id,
-              created_at, updated_at
-       FROM users
-       WHERE email = $1
-       LIMIT 1;`,
-      [data.email]
-    );
-
-    if (result.rows.length === 0) {
+    const { data: session, error } = await supabaseClient.auth.signInWithPassword({
+      email: data.email,
+      password: data.password,
+    });
+    if (error || !session.session || !session.user) {
       throw new UnauthorizedException("Invalid email or password");
     }
 
-    const user = result.rows[0];
-
-    // Check account status
-    if (user.status && user.status.toLowerCase() !== "active") {
+    const staff = await this.findPlatformAdmin(session.user.id);
+    if (!staff) {
+      throw new ForbiddenException("This account does not have access to the control plane");
+    }
+    if (staff.status !== "Active") {
       throw new UnauthorizedException("User account has been deactivated or suspended");
     }
 
-    // 2. Compare password hash
-    const isPasswordValid = await bcrypt.compare(data.password, user.password!);
-    if (!isPasswordValid) {
-      throw new UnauthorizedException("Invalid email or password");
-    }
+    await query("UPDATE platform_admins SET last_login_at = now() WHERE user_id = $1;", [staff.id]);
 
-    // 3. Generate custom JWT token
-    const token = signJwtToken({
-      userId: user.id,
-      email: user.email,
-    });
-
-    // 4. Strip sensitive password
-    const { password: _, ...userWithoutPassword } = user;
-
-    // 5. Hydrate permissions and role details
-    const { permissionService } = await import("./permission.service");
-    const { role, permissions, isSuperAdmin } = await permissionService.getUserPermissionsAndRole(
-      userWithoutPassword as UserModel
-    );
-    const enrichedUser: UserModel = {
-      ...(userWithoutPassword as UserModel),
-      role_details: role,
-      permissions,
-      isSuperAdmin,
-    };
-
-    return {
-      user: enrichedUser,
-      token,
-    };
+    const user = await this.hydrate(staff);
+    return { user, token: session.session.access_token };
   }
 
-  /**
-   * Returns authenticated user profile with permissions
-   */
+  /** Returns the authenticated user's profile with permissions. */
   async getMe(user: UserModel) {
     if (!user.permissions || !user.role_details || user.isSuperAdmin === undefined) {
-      const { permissionService } = await import("./permission.service");
-      const { role, permissions, isSuperAdmin } =
-        await permissionService.getUserPermissionsAndRole(user);
-      return {
-        ...user,
-        role_details: role,
-        permissions,
-        isSuperAdmin,
-      };
+      return this.hydrate(user);
     }
     return user;
+  }
+
+  /** Loads a platform admin (joined with the auth user's email and role) by auth user id. */
+  async findPlatformAdmin(userId: string): Promise<UserModel | null> {
+    const res = await query<UserModel>(
+      `SELECT pa.user_id AS id, COALESCE(pa.first_name, '') AS first_name, COALESCE(pa.last_name, '') AS last_name,
+              au.email, COALESCE(pa.phone_number, '') AS phone_number, pa.status, pa.role_id,
+              pa.created_at, pa.updated_at
+         FROM platform_admins pa
+         JOIN auth.users au ON au.id = pa.user_id
+        WHERE pa.user_id = $1
+        LIMIT 1;`,
+      [userId]
+    );
+    return res.rows[0] ?? null;
+  }
+
+  async hydrate(user: UserModel): Promise<UserModel> {
+    const { permissionService } = await import("./permission.service");
+    const { role, permissions, isSuperAdmin } = await permissionService.getUserPermissionsAndRole(user);
+    return { ...user, role_details: role, permissions, isSuperAdmin };
   }
 }
 

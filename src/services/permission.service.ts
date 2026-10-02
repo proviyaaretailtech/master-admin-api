@@ -32,7 +32,7 @@ export class PermissionService {
     if (user.role_id) {
       const res = await query<SecurityRoleRecord>(
         `SELECT id, name, key, scope, description, is_active, is_system, permissions
-         FROM security_roles
+         FROM platform_roles
          WHERE id = $1
          LIMIT 1;`,
         [user.role_id]

@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { asyncHandler } from "../middlewares/asyncHandler.middleware";
 import { userService } from "../services/user.service";
-import { updateUserSchema, getUsersQuerySchema } from "../validators/user.validator";
+import { createUserSchema, updateUserSchema, getUsersQuerySchema } from "../validators/user.validator";
 import { HTTPSTATUS } from "../config/http.config";
 
 export const getUsersController = asyncHandler(async (req: Request, res: Response) => {
@@ -12,6 +12,16 @@ export const getUsersController = asyncHandler(async (req: Request, res: Respons
     message: "Users fetched successfully",
     users: result.users,
     pagination: result.pagination,
+  });
+});
+
+export const createUserController = asyncHandler(async (req: Request, res: Response) => {
+  const body = createUserSchema.parse(req.body);
+  const user = await userService.createUser(body, req.user);
+
+  res.status(HTTPSTATUS.CREATED).json({
+    message: "User created successfully",
+    user,
   });
 });
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import app from "../index";
 import { query } from "../config/database.config";
-import { signJwtToken } from "../utils/jwt";
+import { ensureRole, createStaff, createOrg, cleanup } from "./helpers/testkit";
 
 describe("Commercial Feature Packs API & Access Control Integration Tests", () => {
   let superAdminToken: string;
@@ -10,54 +10,20 @@ describe("Commercial Feature Packs API & Access Control Integration Tests", () =
   let createdPackId: string;
   let testOrgId: string;
   let testPlanId: string;
+  const staffIds: string[] = [];
 
   beforeAll(async () => {
     process.env.NODE_ENV = "test";
 
-    // 1. Ensure Super Admin role exists
-    const saRole = await query<{ id: string; name: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, is_system, permissions)
-       VALUES ('Super Administrator', 'super_admin', 'All organizations', 'Root Super Admin', true, true, '')
-       ON CONFLICT (key) DO UPDATE SET is_system = true RETURNING id, name;`
-    );
-    const saRoleId = saRole.rows[0].id;
+    await ensureRole({ key: "pack_test_restricted_role", name: "Pack Restricted Staff", permissions: "" });
+    const sa = await createStaff({ roleKey: "super_admin" });
+    const restricted = await createStaff({ roleKey: "pack_test_restricted_role" });
+    staffIds.push(sa.id, restricted.id);
+    superAdminToken = sa.token;
+    restrictedUserToken = restricted.token;
 
-    // Use or create dedicated super admin user
-    const saUser = await query<{ id: string; email: string }>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-       VALUES ('Super', 'Admin', 'superadmin@onlatur.com', '+15550003344', 'hash', 'Active', $1)
-       ON CONFLICT (email) DO UPDATE SET role_id = $1 RETURNING id, email;`,
-      [saRoleId]
-    );
-    superAdminToken = signJwtToken({ userId: saUser.rows[0].id, email: saUser.rows[0].email });
-
-    // 2. Ensure restricted role exists with NO commercial pack permissions
-    const restrictedRole = await query<{ id: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, is_system, permissions)
-       VALUES ('Pack Restricted Staff', 'pack_test_restricted_role', 'One organization', 'No commercial packs access', true, false, '')
-       ON CONFLICT (key) DO UPDATE SET permissions = '' RETURNING id;`
-    );
-    const restrictedRoleId = restrictedRole.rows[0].id;
-
-    // Create or update restricted user
-    const resUser = await query<{ id: string; email: string }>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-       VALUES ('Pack Restricted', 'User', 'pack-restricted-test@onlatur.com', '+15550005566', 'hashed_pass', 'Active', $1)
-       ON CONFLICT (email) DO UPDATE SET role_id = $1 RETURNING id, email;`,
-      [restrictedRoleId]
-    );
-    restrictedUserToken = signJwtToken({
-      userId: resUser.rows[0].id,
-      email: resUser.rows[0].email,
-    });
-
-    // 3. Ensure test organization and commercial plan exist for subscription tests
-    const orgRes = await query<{ id: string }>(
-      `INSERT INTO organizations (business_name, domain, status, email, phone_number)
-       VALUES ('Packs Test Org', 'Restaurant', 'Active', 'packs-test@org.com', '+15554443322')
-       ON CONFLICT (email) DO UPDATE SET business_name = 'Packs Test Org' RETURNING id;`
-    );
-    testOrgId = orgRes.rows[0].id;
+    // Test organization and commercial plan for subscription tests
+    testOrgId = await createOrg({ name: "Packs Test Org" });
 
     const planRes = await query<{ id: string }>(
       `INSERT INTO commercial_plans (plan_code, name, price, modules)
@@ -71,13 +37,10 @@ describe("Commercial Feature Packs API & Access Control Integration Tests", () =
   });
 
   afterAll(async () => {
-    // Cleanup
     await query("DELETE FROM subscriptions WHERE organization_id = $1;", [testOrgId]);
     await query("DELETE FROM commercial_packs WHERE pack_code LIKE 'pk_test_%';");
     await query("DELETE FROM commercial_plans WHERE plan_code = 'test_pack_compatible_plan';");
-    await query("DELETE FROM organizations WHERE id = $1;", [testOrgId]);
-    await query("DELETE FROM users WHERE email = 'pack-restricted-test@onlatur.com';");
-    await query("DELETE FROM security_roles WHERE key = 'pack_test_restricted_role';");
+    await cleanup({ orgIds: [testOrgId], staffIds, roleKeys: ["pack_test_restricted_role"] });
   });
 
   describe("Access Control & Permission Gating", () => {

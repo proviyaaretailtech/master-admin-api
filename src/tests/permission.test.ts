@@ -1,43 +1,31 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import app from "../index";
-import { query } from "../config/database.config";
-import { signJwtToken } from "../utils/jwt";
+import { ensureRole, createStaff, createOrg, cleanup } from "./helpers/testkit";
 import { serializeFeaturesToDb, DEFAULT_FEATURES_TEMPLATE } from "../utils/permission-adapter";
 
 describe("Role-Based Access Control (RBAC) & Permission Middleware Integration Tests", () => {
   let superAdminToken: string;
-  let superAdminUserId: string;
-  let superAdminRoleId: string;
 
-  let unassignedUserId: string;
   let unassignedToken: string;
 
-  let restrictedUserId: string;
   let restrictedToken: string;
   let restrictedRoleId: string;
 
-  let readOnlyUserId: string;
   let readOnlyToken: string;
-  let readOnlyRoleId: string;
 
-  let reviewerUserId: string;
   let reviewerToken: string;
-  let reviewerRoleId: string;
 
-  let contactEditorUserId: string;
   let contactEditorToken: string;
-  let contactEditorRoleId: string;
 
-  let orgCreatorUserId: string;
   let orgCreatorToken: string;
-  let orgCreatorRoleId: string;
 
-  let nonCreatorUserId: string;
   let nonCreatorToken: string;
-  let nonCreatorRoleId: string;
 
   const createdOrgIds: string[] = [];
+  const orgIds: string[] = [];
+  const staffIds: string[] = [];
+  const roleKeys: string[] = [];
 
   let testOrgId: string;
   let deleteTestOrgId: string;
@@ -45,76 +33,24 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
   beforeAll(async () => {
     process.env.NODE_ENV = "test";
 
-    // 1. Get or create test organization
-    const orgRes = await query<{ id: string }>(
-      "SELECT id FROM organizations ORDER BY created_at ASC LIMIT 1;"
-    );
-    if (orgRes.rows.length > 0) {
-      testOrgId = orgRes.rows[0].id;
-    } else {
-      const newOrg = await query<{ id: string }>(
-        `INSERT INTO organizations (business_name, domain, status, email, phone_number)
-         VALUES ('RBAC Test Org', 'Restaurant', 'Draft', 'rbac@test.com', '+15550001122')
-         RETURNING id;`
-      );
-      testOrgId = newOrg.rows[0].id;
-    }
+    // 1. Test organizations (canonical table; each comes with a default location)
+    testOrgId = await createOrg({ name: "RBAC Test Org", status: "Draft" });
+    orgIds.push(testOrgId);
+    // A disposable organization specifically for the delete test
+    deleteTestOrgId = await createOrg({ name: "Delete Target Org", status: "Draft" });
 
-    // Create a disposable organization specifically for the delete test
-    const deleteOrgRes = await query<{ id: string }>(
-      `INSERT INTO organizations (business_name, domain, status, email, phone_number)
-       VALUES ('Delete Target Org', 'Store', 'Draft', 'deleteme@target.com', '+15550009988')
-       RETURNING id;`
-    );
-    deleteTestOrgId = deleteOrgRes.rows[0].id;
+    // 2. Super admin (role key = 'super_admin', seeded by migrations)
+    const sa = await createStaff({ roleKey: "super_admin" });
+    staffIds.push(sa.id);
+    superAdminToken = sa.token;
 
-    // 2. Setup Super Admin Role (key = 'super_admin') and Super Admin User
-    const saRoleRes = await query<{ id: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, is_system, permissions)
-       VALUES ('Super Administrator', 'super_admin', 'All organizations', 'Root Super Admin', true, true, '')
-       ON CONFLICT (key) DO UPDATE SET is_system = true RETURNING id;`
-    );
-    superAdminRoleId = saRoleRes.rows[0].id;
+    // 3. Staff with NO role assigned (role_id = NULL) - MUST NOT have any permissions or bypass
+    const unassigned = await createStaff({ roleKey: null });
+    staffIds.push(unassigned.id);
+    unassignedToken = unassigned.token;
 
-    const adminUserRes = await query<{ id: string; email: string }>(
-      "SELECT id, email FROM users WHERE role_id = $1 OR email = 'superadmin@onlatur.com' LIMIT 1;",
-      [superAdminRoleId]
-    );
-    if (adminUserRes.rows.length > 0) {
-      superAdminUserId = adminUserRes.rows[0].id;
-      await query("UPDATE users SET role_id = $1 WHERE id = $2;", [
-        superAdminRoleId,
-        superAdminUserId,
-      ]);
-      superAdminToken = signJwtToken({
-        userId: superAdminUserId,
-        email: adminUserRes.rows[0].email,
-      });
-    } else {
-      const newAdmin = await query<{ id: string; email: string }>(
-        `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-         VALUES ('Super', 'Admin', 'superadmin@onlatur.com', '+15550003344', 'hash', 'Active', $1)
-         RETURNING id, email;`,
-        [superAdminRoleId]
-      );
-      superAdminUserId = newAdmin.rows[0].id;
-      superAdminToken = signJwtToken({ userId: superAdminUserId, email: newAdmin.rows[0].email });
-    }
-
-    // 3. User with NO role assigned (role_id = NULL) - MUST NOT have any permissions or bypass
-    const unassignedRes = await query<{ id: string; email: string }>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-       VALUES ('Unassigned', 'User', 'unassigned-user@test.com', '+15550004455', 'hash', 'Active', NULL)
-       RETURNING id, email;`
-    );
-    unassignedUserId = unassignedRes.rows[0].id;
-    unassignedToken = signJwtToken({
-      userId: unassignedUserId,
-      email: unassignedRes.rows[0].email,
-    });
-
-    // 4. Create Restricted Role (Locations completely disabled)
-    const restrictedPermissions = serializeFeaturesToDb(
+    // 4. Restricted Role (Locations completely disabled)
+const restrictedPermissions = serializeFeaturesToDb(
       DEFAULT_FEATURES_TEMPLATE.map((f) => {
         if (f.id === "feat_partner_locations") {
           return {
@@ -126,27 +62,14 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
         return f;
       })
     );
+    restrictedRoleId = await ensureRole({ key: "restricted_test_role", name: "Restricted Role Test", permissions: restrictedPermissions });
+    roleKeys.push("restricted_test_role");
+    const restrictedStaff = await createStaff({ roleKey: "restricted_test_role" });
+    staffIds.push(restrictedStaff.id);
+    restrictedToken = restrictedStaff.token;
 
-    const resRole = await query<{ id: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, permissions)
-       VALUES ('Restricted Role Test', 'restricted_test_role', 'One organization', 'No location access', true, $1)
-       ON CONFLICT (key) DO UPDATE SET permissions = EXCLUDED.permissions RETURNING id;`,
-      [restrictedPermissions]
-    );
-    restrictedRoleId = resRole.rows[0].id;
-
-    // Create user with Restricted Role
-    const resUser = await query<{ id: string; email: string }>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-       VALUES ('Restricted', 'User', 'restricted-user@test.com', '+15550005566', 'hash', 'Active', $1)
-       RETURNING id, email;`,
-      [restrictedRoleId]
-    );
-    restrictedUserId = resUser.rows[0].id;
-    restrictedToken = signJwtToken({ userId: restrictedUserId, email: resUser.rows[0].email });
-
-    // 5. Create Read-Only Locations Role (view_locations enabled, create_location disabled)
-    const readOnlyPermissions = serializeFeaturesToDb(
+    // 5. Read-Only Locations Role (view_locations enabled, create_location disabled)
+const readOnlyPermissions = serializeFeaturesToDb(
       DEFAULT_FEATURES_TEMPLATE.map((f) => {
         if (f.id === "feat_partner_locations") {
           return {
@@ -158,26 +81,14 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
         return f;
       })
     );
+    await ensureRole({ key: "read_only_locations_role", name: "Read Only Locations Test", permissions: readOnlyPermissions });
+    roleKeys.push("read_only_locations_role");
+    const readOnlyStaff = await createStaff({ roleKey: "read_only_locations_role" });
+    staffIds.push(readOnlyStaff.id);
+    readOnlyToken = readOnlyStaff.token;
 
-    const roRole = await query<{ id: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, permissions)
-       VALUES ('Read Only Locations Test', 'read_only_locations_role', 'One organization', 'View locations only', true, $1)
-       ON CONFLICT (key) DO UPDATE SET permissions = EXCLUDED.permissions RETURNING id;`,
-      [readOnlyPermissions]
-    );
-    readOnlyRoleId = roRole.rows[0].id;
-
-    const roUser = await query<{ id: string; email: string }>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-       VALUES ('ReadOnly', 'User', 'readonly-user@test.com', '+15550007788', 'hash', 'Active', $1)
-       RETURNING id, email;`,
-      [readOnlyRoleId]
-    );
-    readOnlyUserId = roUser.rows[0].id;
-    readOnlyToken = signJwtToken({ userId: readOnlyUserId, email: roUser.rows[0].email });
-
-    // 6. Create Reviewer Role (approve_partner enabled, delete_partner DISABLED, edit_contact_info DISABLED)
-    const reviewerPermissions = serializeFeaturesToDb(
+    // 6. Reviewer Role (approve_partner enabled, delete_partner DISABLED, edit_contact_info DISABLED)
+const reviewerPermissions = serializeFeaturesToDb(
       DEFAULT_FEATURES_TEMPLATE.map((f) => {
         if (f.id === "feat_partner_review") {
           return {
@@ -199,26 +110,14 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
         return f;
       })
     );
+    await ensureRole({ key: "reviewer_only_test_role", name: "Reviewer Only Test", permissions: reviewerPermissions });
+    roleKeys.push("reviewer_only_test_role");
+    const reviewerStaff = await createStaff({ roleKey: "reviewer_only_test_role" });
+    staffIds.push(reviewerStaff.id);
+    reviewerToken = reviewerStaff.token;
 
-    const revRoleRes = await query<{ id: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, permissions)
-       VALUES ('Reviewer Only Test', 'reviewer_only_test_role', 'One organization', 'Can approve, cannot delete or edit contact', true, $1)
-       ON CONFLICT (key) DO UPDATE SET permissions = EXCLUDED.permissions RETURNING id;`,
-      [reviewerPermissions]
-    );
-    reviewerRoleId = revRoleRes.rows[0].id;
-
-    const revUserRes = await query<{ id: string; email: string }>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-       VALUES ('Reviewer', 'User', 'reviewer-user@test.com', '+15550008899', 'hash', 'Active', $1)
-       RETURNING id, email;`,
-      [reviewerRoleId]
-    );
-    reviewerUserId = revUserRes.rows[0].id;
-    reviewerToken = signJwtToken({ userId: reviewerUserId, email: revUserRes.rows[0].email });
-
-    // 7. Create Contact Editor Role (edit_contact_info enabled, delete_partner DISABLED, review actions DISABLED)
-    const contactEditorPermissions = serializeFeaturesToDb(
+    // 7. Contact Editor Role (edit_contact_info enabled, delete_partner DISABLED, review actions DISABLED)
+const contactEditorPermissions = serializeFeaturesToDb(
       DEFAULT_FEATURES_TEMPLATE.map((f) => {
         if (f.id === "feat_partner_docs") {
           return {
@@ -240,29 +139,14 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
         return f;
       })
     );
+    await ensureRole({ key: "contact_editor_test_role", name: "Contact Editor Test", permissions: contactEditorPermissions });
+    roleKeys.push("contact_editor_test_role");
+    const contactEditorStaff = await createStaff({ roleKey: "contact_editor_test_role" });
+    staffIds.push(contactEditorStaff.id);
+    contactEditorToken = contactEditorStaff.token;
 
-    const ceRoleRes = await query<{ id: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, permissions)
-       VALUES ('Contact Editor Test', 'contact_editor_test_role', 'One organization', 'Can edit contact, cannot delete or review', true, $1)
-       ON CONFLICT (key) DO UPDATE SET permissions = EXCLUDED.permissions RETURNING id;`,
-      [contactEditorPermissions]
-    );
-    contactEditorRoleId = ceRoleRes.rows[0].id;
-
-    const ceUserRes = await query<{ id: string; email: string }>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-       VALUES ('ContactEditor', 'User', 'contact-editor@test.com', '+15550009911', 'hash', 'Active', $1)
-       RETURNING id, email;`,
-      [contactEditorRoleId]
-    );
-    contactEditorUserId = ceUserRes.rows[0].id;
-    contactEditorToken = signJwtToken({
-      userId: contactEditorUserId,
-      email: ceUserRes.rows[0].email,
-    });
-
-    // 8. Create Org Creator Role (feat_org_360 -> create_org enabled, view_directory enabled; feat_partner_review actions DISABLED)
-    const orgCreatorPermissions = serializeFeaturesToDb(
+    // 8. Org Creator Role (create_org + view_directory enabled; review actions DISABLED)
+const orgCreatorPermissions = serializeFeaturesToDb(
       DEFAULT_FEATURES_TEMPLATE.map((f) => {
         if (f.id === "feat_org_360") {
           return {
@@ -284,29 +168,14 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
         return f;
       })
     );
+    await ensureRole({ key: "org_creator_test_role", name: "Org Creator Test", permissions: orgCreatorPermissions });
+    roleKeys.push("org_creator_test_role");
+    const orgCreatorStaff = await createStaff({ roleKey: "org_creator_test_role" });
+    staffIds.push(orgCreatorStaff.id);
+    orgCreatorToken = orgCreatorStaff.token;
 
-    const ocRoleRes = await query<{ id: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, permissions)
-       VALUES ('Org Creator Test', 'org_creator_test_role', 'One organization', 'Can create orgs, cannot review or approve', true, $1)
-       ON CONFLICT (key) DO UPDATE SET permissions = EXCLUDED.permissions RETURNING id;`,
-      [orgCreatorPermissions]
-    );
-    orgCreatorRoleId = ocRoleRes.rows[0].id;
-
-    const ocUserRes = await query<{ id: string; email: string }>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-       VALUES ('OrgCreator', 'User', 'org-creator@test.com', '+15550009933', 'hash', 'Active', $1)
-       ON CONFLICT (email) DO UPDATE SET role_id = EXCLUDED.role_id RETURNING id, email;`,
-      [orgCreatorRoleId]
-    );
-    orgCreatorUserId = ocUserRes.rows[0].id;
-    orgCreatorToken = signJwtToken({
-      userId: orgCreatorUserId,
-      email: ocUserRes.rows[0].email,
-    });
-
-    // 9. Create Non-Creator Role (feat_org_360 accessLevel: 'none', create_org: false)
-    const nonCreatorPermissions = serializeFeaturesToDb(
+    // 9. Non-Creator Role (feat_org_360 accessLevel: 'none', create_org: false)
+const nonCreatorPermissions = serializeFeaturesToDb(
       DEFAULT_FEATURES_TEMPLATE.map((f) => {
         if (f.id === "feat_org_360") {
           return {
@@ -318,58 +187,21 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
         return f;
       })
     );
-
-    const ncRoleRes = await query<{ id: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, permissions)
-       VALUES ('Non Creator Test', 'non_creator_test_role', 'One organization', 'Cannot create orgs', true, $1)
-       ON CONFLICT (key) DO UPDATE SET permissions = EXCLUDED.permissions RETURNING id;`,
-      [nonCreatorPermissions]
-    );
-    nonCreatorRoleId = ncRoleRes.rows[0].id;
-
-    const ncUserRes = await query<{ id: string; email: string }>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-       VALUES ('NonCreator', 'User', 'non-creator@test.com', '+15550009922', 'hash', 'Active', $1)
-       ON CONFLICT (email) DO UPDATE SET role_id = EXCLUDED.role_id RETURNING id, email;`,
-      [nonCreatorRoleId]
-    );
-    nonCreatorUserId = ncUserRes.rows[0].id;
-    nonCreatorToken = signJwtToken({
-      userId: nonCreatorUserId,
-      email: ncUserRes.rows[0].email,
-    });
+    await ensureRole({ key: "non_creator_test_role", name: "Non Creator Test", permissions: nonCreatorPermissions });
+    roleKeys.push("non_creator_test_role");
+    const nonCreatorStaff = await createStaff({ roleKey: "non_creator_test_role" });
+    staffIds.push(nonCreatorStaff.id);
+    nonCreatorToken = nonCreatorStaff.token;
   });
 
   afterAll(async () => {
-    // Cleanup test users, roles, and organizations
-    if (unassignedUserId) await query("DELETE FROM users WHERE id = $1;", [unassignedUserId]);
-    if (restrictedUserId) await query("DELETE FROM users WHERE id = $1;", [restrictedUserId]);
-    if (readOnlyUserId) await query("DELETE FROM users WHERE id = $1;", [readOnlyUserId]);
-    if (reviewerUserId) await query("DELETE FROM users WHERE id = $1;", [reviewerUserId]);
-    if (contactEditorUserId) await query("DELETE FROM users WHERE id = $1;", [contactEditorUserId]);
-    if (orgCreatorUserId) await query("DELETE FROM users WHERE id = $1;", [orgCreatorUserId]);
-    if (nonCreatorUserId) await query("DELETE FROM users WHERE id = $1;", [nonCreatorUserId]);
-
-    if (restrictedRoleId)
-      await query("DELETE FROM security_roles WHERE id = $1;", [restrictedRoleId]);
-    if (readOnlyRoleId) await query("DELETE FROM security_roles WHERE id = $1;", [readOnlyRoleId]);
-    if (reviewerRoleId) await query("DELETE FROM security_roles WHERE id = $1;", [reviewerRoleId]);
-    if (contactEditorRoleId)
-      await query("DELETE FROM security_roles WHERE id = $1;", [contactEditorRoleId]);
-    if (orgCreatorRoleId)
-      await query("DELETE FROM security_roles WHERE id = $1;", [orgCreatorRoleId]);
-    if (nonCreatorRoleId)
-      await query("DELETE FROM security_roles WHERE id = $1;", [nonCreatorRoleId]);
-
-    if (deleteTestOrgId) await query("DELETE FROM organizations WHERE id = $1;", [deleteTestOrgId]);
-
-    for (const orgId of createdOrgIds) {
-      await query("DELETE FROM organizations WHERE id = $1;", [orgId]);
-    }
+    // Cleanup test staff, roles, and organizations (deleting an org cascades to its locations)
+    if (deleteTestOrgId) orgIds.push(deleteTestOrgId);
+    await cleanup({ orgIds: [...orgIds, ...createdOrgIds], staffIds, roleKeys });
   });
 
   describe("API Permissions & User Profile Verification", () => {
-    it("GET /api/auth/me - returns current user's permissions and role info from security_roles", async () => {
+    it("GET /api/auth/me - returns current user's permissions and role info from platform_roles", async () => {
       const res = await request(app)
         .get("/api/auth/me")
         .set("Authorization", `Bearer ${restrictedToken}`);
@@ -544,7 +376,7 @@ describe("Role-Based Access Control (RBAC) & Permission Middleware Integration T
     });
   });
 
-  describe("Super Admin Bypass (Identified exclusively via key = 'super_admin' in security_roles)", () => {
+  describe("Super Admin Bypass (Identified exclusively via key = 'super_admin' in platform_roles)", () => {
     it("should allow Super Admin full access without restrictions on locations", async () => {
       const res = await request(app)
         .get(`/api/organizations/${testOrgId}/locations`)

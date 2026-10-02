@@ -8,6 +8,7 @@ export default defineConfig({
     fileParallelism: false,
     testTimeout: 30000,
     include: ["src/**/*.{test,spec}.ts"],
+    setupFiles: ["src/tests/setup.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],

@@ -96,9 +96,9 @@ export class RoleService {
         r.permissions, 
         r.created_at, 
         r.updated_at,
-        COUNT(u.id)::int AS assigned_count
-      FROM security_roles r
-      LEFT JOIN users u ON u.role_id = r.id
+        COUNT(u.user_id)::int AS assigned_count
+      FROM platform_roles r
+      LEFT JOIN platform_admins u ON u.role_id = r.id
       ${whereClause}
       GROUP BY r.id
       ORDER BY r.is_system DESC, r.created_at ASC;
@@ -129,9 +129,9 @@ export class RoleService {
         r.permissions, 
         r.created_at, 
         r.updated_at,
-        COUNT(u.id)::int AS assigned_count
-      FROM security_roles r
-      LEFT JOIN users u ON u.role_id = r.id
+        COUNT(u.user_id)::int AS assigned_count
+      FROM platform_roles r
+      LEFT JOIN platform_admins u ON u.role_id = r.id
       WHERE r.id = $1
       GROUP BY r.id
       LIMIT 1;
@@ -154,7 +154,7 @@ export class RoleService {
 
     // Check unique key
     const existing = await query<{ id: string }>(
-      "SELECT id FROM security_roles WHERE key = $1 LIMIT 1;",
+      "SELECT id FROM platform_roles WHERE key = $1 LIMIT 1;",
       [keyNormalized]
     );
     if (existing.rows.length > 0) {
@@ -163,7 +163,7 @@ export class RoleService {
 
     // Check unique role name (case-insensitive)
     const existingName = await query<{ id: string }>(
-      "SELECT id FROM security_roles WHERE LOWER(name) = LOWER($1) LIMIT 1;",
+      "SELECT id FROM platform_roles WHERE LOWER(name) = LOWER($1) LIMIT 1;",
       [nameTrimmed]
     );
     if (existingName.rows.length > 0) {
@@ -174,7 +174,7 @@ export class RoleService {
     const permissionsString = serializeFeaturesToDb(data.features);
 
     const insertSql = `
-      INSERT INTO security_roles (name, key, scope, description, is_active, is_system, permissions)
+      INSERT INTO platform_roles (name, key, scope, description, is_active, is_system, permissions)
       VALUES ($1, $2, $3, $4, $5, false, $6)
       RETURNING 
         id, 
@@ -207,7 +207,7 @@ export class RoleService {
    */
   async updateRole(id: string, data: UpdateRoleInput): Promise<RoleDto> {
     // Check if role exists
-    const existing = await query<RoleDbRow>("SELECT * FROM security_roles WHERE id = $1 LIMIT 1;", [
+    const existing = await query<RoleDbRow>("SELECT * FROM platform_roles WHERE id = $1 LIMIT 1;", [
       id,
     ]);
     if (existing.rows.length === 0) {
@@ -219,7 +219,7 @@ export class RoleService {
     if (data.name !== undefined) {
       const nameTrimmed = data.name.trim();
       const existingName = await query<{ id: string }>(
-        "SELECT id FROM security_roles WHERE LOWER(name) = LOWER($1) AND id != $2 LIMIT 1;",
+        "SELECT id FROM platform_roles WHERE LOWER(name) = LOWER($1) AND id != $2 LIMIT 1;",
         [nameTrimmed, id]
       );
       if (existingName.rows.length > 0) {
@@ -237,7 +237,7 @@ export class RoleService {
       data.features !== undefined ? serializeFeaturesToDb(data.features) : current.permissions;
 
     const updateSql = `
-      UPDATE security_roles
+      UPDATE platform_roles
       SET 
         name = $1,
         scope = $2,
@@ -270,7 +270,7 @@ export class RoleService {
 
     // Fetch assigned count
     const countResult = await query<{ count: number }>(
-      "SELECT COUNT(*)::int AS count FROM users WHERE role_id = $1;",
+      "SELECT COUNT(*)::int AS count FROM platform_admins WHERE role_id = $1;",
       [id]
     );
     const assignedCount = countResult.rows[0]?.count || 0;
@@ -286,7 +286,7 @@ export class RoleService {
    */
   async deleteRole(id: string): Promise<{ id: string; name: string }> {
     const existing = await query<RoleDbRow>(
-      "SELECT id, name, is_system FROM security_roles WHERE id = $1 LIMIT 1;",
+      "SELECT id, name, is_system FROM platform_roles WHERE id = $1 LIMIT 1;",
       [id]
     );
     if (existing.rows.length === 0) {
@@ -298,9 +298,9 @@ export class RoleService {
     }
 
     // Unassign any users currently assigned to this role before deleting
-    await query("UPDATE users SET role_id = NULL WHERE role_id = $1;", [id]);
+    await query("UPDATE platform_admins SET role_id = NULL WHERE role_id = $1;", [id]);
 
-    await query("DELETE FROM security_roles WHERE id = $1;", [id]);
+    await query("DELETE FROM platform_roles WHERE id = $1;", [id]);
 
     return { id, name: existing.rows[0].name };
   }

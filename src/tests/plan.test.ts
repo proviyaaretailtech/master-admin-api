@@ -2,52 +2,23 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import app from "../index";
 import { query } from "../config/database.config";
-import { signJwtToken } from "../utils/jwt";
+import { ensureRole, createStaff, cleanup } from "./helpers/testkit";
 
 describe("Commercial Plans API & Access Control Integration Tests", () => {
   let superAdminToken: string;
   let restrictedUserToken: string;
   let createdPlanId: string;
+  const staffIds: string[] = [];
 
   beforeAll(async () => {
     process.env.NODE_ENV = "test";
 
-    // 1. Ensure Super Admin role exists
-    const saRole = await query<{ id: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, is_system, permissions)
-       VALUES ('Super Administrator', 'super_admin', 'All organizations', 'Root Super Admin', true, true, '')
-       ON CONFLICT (key) DO UPDATE SET is_system = true RETURNING id;`
-    );
-    const saRoleId = saRole.rows[0].id;
-
-    // Use or create dedicated super admin user without deleting it in afterAll
-    const saUser = await query<{ id: string; email: string }>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-       VALUES ('Super', 'Admin', 'superadmin@onlatur.com', '+15550003344', 'hash', 'Active', $1)
-       ON CONFLICT (email) DO UPDATE SET role_id = $1 RETURNING id, email;`,
-      [saRoleId]
-    );
-    superAdminToken = signJwtToken({ userId: saUser.rows[0].id, email: saUser.rows[0].email });
-
-    // Ensure restricted role exists with NO commercial permissions
-    const restrictedRole = await query<{ id: string }>(
-      `INSERT INTO security_roles (name, key, scope, description, is_active, is_system, permissions)
-       VALUES ('Plan Restricted Staff', 'plan_test_restricted_role', 'One organization', 'No commercial plans access', true, false, '')
-       ON CONFLICT (key) DO UPDATE SET permissions = '' RETURNING id;`
-    );
-    const restrictedRoleId = restrictedRole.rows[0].id;
-
-    // Create or update restricted user
-    const resUser = await query<{ id: string; email: string }>(
-      `INSERT INTO users (first_name, last_name, email, phone_number, password, status, role_id)
-       VALUES ('Plan Restricted', 'User', 'plan-restricted-test@onlatur.com', '+15550002222', 'hashed_pass', 'Active', $1)
-       ON CONFLICT (email) DO UPDATE SET role_id = $1 RETURNING id, email;`,
-      [restrictedRoleId]
-    );
-    restrictedUserToken = signJwtToken({
-      userId: resUser.rows[0].id,
-      email: resUser.rows[0].email,
-    });
+    await ensureRole({ key: "plan_test_restricted_role", name: "Plan Restricted Staff", permissions: "" });
+    const sa = await createStaff({ roleKey: "super_admin" });
+    const restricted = await createStaff({ roleKey: "plan_test_restricted_role" });
+    staffIds.push(sa.id, restricted.id);
+    superAdminToken = sa.token;
+    restrictedUserToken = restricted.token;
 
     // Clean up test plans and modules
     await query("DELETE FROM commercial_plans WHERE plan_code LIKE 'test_%';");
@@ -55,11 +26,9 @@ describe("Commercial Plans API & Access Control Integration Tests", () => {
   });
 
   afterAll(async () => {
-    // Cleanup test plans, modules, and restricted test user
     await query("DELETE FROM commercial_plans WHERE plan_code LIKE 'test_%';");
     await query("DELETE FROM platform_modules WHERE key IN ('MODTST', 'MODLTR');");
-    await query("DELETE FROM users WHERE email = 'plan-restricted-test@onlatur.com';");
-    await query("DELETE FROM security_roles WHERE key = 'plan_test_restricted_role';");
+    await cleanup({ staffIds, roleKeys: ["plan_test_restricted_role"] });
   });
 
   describe("Access Control & Permission Gating", () => {

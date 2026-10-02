@@ -32,3 +32,13 @@ export const getScopedSupabaseClient = (accessToken?: string): SupabaseClient =>
     },
   });
 };
+
+/**
+ * Service-role client for server-side administration only (creating and removing platform staff
+ * accounts). It bypasses Row Level Security: never expose it to a request without an authorization check.
+ */
+export const supabaseAdmin: SupabaseClient = createClient(
+  Env.SUPABASE_URL,
+  Env.SUPABASE_SERVICE_ROLE_KEY || Env.SUPABASE_ANON_KEY,
+  { auth: { persistSession: false, autoRefreshToken: false } }
+);

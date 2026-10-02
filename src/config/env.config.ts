@@ -22,7 +22,22 @@ export const Env = {
   // Direct PostgreSQL Connection (used for migrations)
   DATABASE_URL: getEnv("DATABASE_URL", ""),
 
-  // JWT Configuration (mirroring TechWithEmma system)
-  JWT_SECRET: getEnv("JWT_SECRET", "super-secret-jwt-pos-key-1234567890"),
-  JWT_EXPIRES_IN: getEnv("JWT_EXPIRES_IN", "7d"),
+  // Server-side only. Used to create platform staff accounts (Supabase Admin API). Never sent to a browser.
+  SUPABASE_SERVICE_ROLE_KEY: getEnv("SUPABASE_SERVICE_ROLE_KEY", ""),
 } as const;
+
+// Sign-in is handled by Supabase Auth (access tokens are verified with Supabase), so there is no
+// app-level JWT secret any more. In production the settings below must be real.
+if (process.env.NODE_ENV === "production") {
+  const missing = [
+    ["SUPABASE_URL", Env.SUPABASE_URL.includes("placeholder")],
+    ["SUPABASE_ANON_KEY", Env.SUPABASE_ANON_KEY === "placeholder-anon-key"],
+    ["DATABASE_URL", !Env.DATABASE_URL],
+    ["SUPABASE_SERVICE_ROLE_KEY", !Env.SUPABASE_SERVICE_ROLE_KEY],
+  ]
+    .filter(([, bad]) => bad)
+    .map(([name]) => name);
+  if (missing.length > 0) {
+    throw new Error(`Refusing to start in production without: ${missing.join(", ")}`);
+  }
+}

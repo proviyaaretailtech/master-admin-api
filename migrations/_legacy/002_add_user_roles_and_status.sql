@@ -8,10 +8,4 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS business VARCHAR(100) DEFAULT '-';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;
 
 -- Seed initial system accounts matching the system accounts panel
-INSERT INTO users (first_name, last_name, email, phone_number, password, panel, role, business, status)
-VALUES
-  ('super', 'admin', 'superadmin@onlatur.com', '-', '$2b$10$DPblimyykkiG6qIIuwzQeeI/2upJAY.FdSOTQH1PtbLlmsv1s0Qh2', 'admin', 'admin', '-', 'Active')
-ON CONFLICT (email) DO UPDATE 
-SET panel = EXCLUDED.panel,
-    role = EXCLUDED.role,
-    status = EXCLUDED.status;
+-- (seeded superadmin account removed: credential material must never be committed. Platform admins are created with `npm run bootstrap:admin`.)
