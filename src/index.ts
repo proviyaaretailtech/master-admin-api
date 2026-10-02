@@ -68,5 +68,10 @@ if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
     console.log(`📡 API endpoint: http://localhost:${Env.PORT}${Env.BASE_PATH}`);
   });
 }
+// Support both CommonJS (Vercel Node Lambda handler) and ES module imports
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = app;
+  module.exports.default = app;
+}
 
 export default app;
