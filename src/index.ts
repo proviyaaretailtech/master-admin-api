@@ -24,8 +24,8 @@ app.use(globalRateLimiter);
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, server-to-server)
-      if (!origin || allowedCorsOrigins.includes(origin)) {
+      // Allow requests with no origin (like mobile apps, curl, server-to-server) or Vercel preview/production domains
+      if (!origin || allowedCorsOrigins.includes(origin) || origin.endsWith(".vercel.app")) {
         callback(null, true);
       } else {
         callback(new Error(`CORS error: Origin ${origin} not allowed`));
@@ -62,8 +62,8 @@ app.use((_req: Request, _res: Response) => {
 // 9. Global Error Handler Middleware
 app.use(errorHandler);
 
-// Start server only when not running in test mode
-if (process.env.NODE_ENV !== "test") {
+// Start server only when not running in test mode and not inside Vercel serverless environment
+if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
   app.listen(Env.PORT, () => {
     console.log(`🚀 Server running on port ${Env.PORT} in ${Env.NODE_ENV} mode`);
     console.log(`📡 API endpoint: http://localhost:${Env.PORT}${Env.BASE_PATH}`);
