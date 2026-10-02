@@ -11,6 +11,27 @@ const LOCATION_TYPES = [
 
 const LOCATION_STATUSES = ["Active", "Pending", "Inactive", "Draft"] as const;
 
+/** A real IANA time zone (e.g. Asia/Kolkata); anything else would be stored as-is and break scheduling. */
+const timeZoneSchema = z
+  .string()
+  .trim()
+  .max(50)
+  .refine((tz) => {
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Invalid time zone (use an IANA name such as Asia/Kolkata)");
+
+/** "INR" or a label that starts with the 3-letter code, e.g. "INR (₹)". */
+const currencyLabelSchema = z
+  .string()
+  .trim()
+  .max(30)
+  .regex(/^[A-Za-z]{3}(\s.*)?$/, "Currency must start with a 3-letter code such as INR");
+
 export const createLocationSchema = z
   .object({
     name: z
@@ -39,9 +60,9 @@ export const createLocationSchema = z
         }),
       })
       .default("Active"),
-    time_zone: z.string().trim().max(50).default("Asia/Kolkata").optional(),
-    timeZone: z.string().trim().max(50).optional(),
-    currency: z.string().trim().max(30).default("INR (₹)").optional(),
+    time_zone: timeZoneSchema.default("Asia/Kolkata").optional(),
+    timeZone: timeZoneSchema.optional(),
+    currency: currencyLabelSchema.default("INR (₹)").optional(),
   })
   .transform((data) => ({
     name: data.name,
@@ -82,9 +103,9 @@ export const updateLocationSchema = z
         }),
       })
       .optional(),
-    time_zone: z.string().trim().max(50).optional(),
-    timeZone: z.string().trim().max(50).optional(),
-    currency: z.string().trim().max(30).optional(),
+    time_zone: timeZoneSchema.optional(),
+    timeZone: timeZoneSchema.optional(),
+    currency: currencyLabelSchema.optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "At least one field must be provided for update",

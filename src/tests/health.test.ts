@@ -20,8 +20,10 @@ describe("Backend API & Security Integration Tests", () => {
       const res = await request(app).get("/api/health");
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty("status", "healthy");
-      expect(res.body).toHaveProperty("uptime");
       expect(res.body).toHaveProperty("timestamp");
+      // Unauthenticated endpoint: must not reveal the environment name or process uptime
+      expect(res.body).not.toHaveProperty("uptime");
+      expect(res.body).not.toHaveProperty("environment");
     });
 
     it("should return 404 for nonexistent routes", async () => {

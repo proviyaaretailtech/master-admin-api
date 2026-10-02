@@ -16,7 +16,13 @@ export const loginController = asyncHandler(async (req: Request, res: Response) 
   });
 });
 
-export const logoutController = asyncHandler(async (_req: Request, res: Response) => {
+export const logoutController = asyncHandler(async (req: Request, res: Response) => {
+  // Revoke the caller's Supabase session (best effort; the response is the same either way so the
+  // endpoint cannot be used to probe tokens).
+  const header = req.headers.authorization;
+  const token = header && header.startsWith("Bearer ") ? header.slice(7) : undefined;
+  await authService.logout(token);
+
   res.status(HTTPSTATUS.OK).json({
     message: "Logout successful",
   });

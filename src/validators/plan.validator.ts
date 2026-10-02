@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { priceSchema, currencyCodeSchema, dateStringSchema, boundedInt, stringList } from "./common.validator";
 
 export const planParamsSchema = z.object({
   id: z.string().uuid("Invalid plan ID format"),
@@ -20,32 +21,29 @@ export const createPlanSchema = z.object({
       "Plan code must contain only lowercase letters, numbers, hyphens, and underscores"
     ),
   version: z.string().trim().max(10).default("v1.0"),
+  // Lifecycle fields: `status` is a request that only takes effect with the publish_plan / retire_plan
+  // permission, and `version_type` follows the lifecycle (only "Custom" is a free choice). See utils/lifecycle.ts.
   version_type: z.enum(["Draft", "Active", "Custom", "Legacy"]).default("Draft"),
   status: z.enum(["Draft", "Published", "Retired"]).default("Draft"),
-  price: z.coerce.number().min(0, "Price must be non-negative").default(0),
-  currency: z.string().trim().min(2).max(10).default("INR"),
+  price: priceSchema.default(0),
+  currency: currencyCodeSchema.default("INR"),
   cadence: z.enum(["Monthly", "Annual", "Quarterly"]).default("Monthly"),
   tax_note: z.string().trim().max(150).default("+18% GST Applicable"),
-  trial_days: z.coerce.number().int().min(0).default(3),
-  effective_date: z
-    .string()
-    .datetime({ offset: true })
-    .optional()
-    .nullable()
-    .or(z.string().optional()),
-  locations_limit: z.coerce.number().int().min(1, "Locations limit must be at least 1").default(1),
-  users_limit: z.coerce.number().int().min(1, "Users limit must be at least 1").default(3),
+  trial_days: boundedInt(0, 3650, "Trial days").default(3),
+  effective_date: dateStringSchema.optional().nullable(),
+  locations_limit: boundedInt(1, 1_000_000, "Locations limit").default(1),
+  users_limit: boundedInt(1, 1_000_000, "Users limit").default(3),
   is_unlimited_locations: z.boolean().default(false),
   is_unlimited_users: z.boolean().default(false),
-  modules: z.array(z.string().trim().min(1)).default([]),
+  modules: stringList(200, 50).default([]),
 });
 
 export const updatePlanSchema = createPlanSchema.partial();
 
 export const getPlansQuerySchema = z.object({
-  search: z.string().trim().optional(),
-  status: z.string().trim().optional(),
-  cadence: z.string().trim().optional(),
+  search: z.string().trim().max(100).optional(),
+  status: z.string().trim().max(50).optional(),
+  cadence: z.string().trim().max(30).optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(50),
 });

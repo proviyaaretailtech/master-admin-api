@@ -1,11 +1,17 @@
-import { query } from "../config/database.config";
-import { NotFoundException, BadRequestException } from "../utils/app-error";
+import { query, queryAs } from "../config/database.config";
+import { NotFoundException, BadRequestException, ForbiddenException } from "../utils/app-error";
+import { Actor, assertWithinActorPermissions } from "../utils/authz";
 import { CreateRoleInput, UpdateRoleInput, GetRolesQuery } from "../validators/role.validator";
 import {
   serializeFeaturesToDb,
   deserializeFeaturesFromDb,
+  canonicalizeFeatures,
   FeaturePermission,
 } from "../utils/permission-adapter";
+
+/** Only the permissions that are actually granted are stored (a "none" feature is the default). */
+const serializeGranted = (features: FeaturePermission[]): string =>
+  serializeFeaturesToDb(features.filter((f) => f.accessLevel !== "none"));
 
 export interface RoleDto {
   id: string;
@@ -146,11 +152,15 @@ export class RoleService {
   }
 
   /**
-   * Creates a new role and serializes features into the delimited DB string
+   * Creates a new role and serializes features into the delimited DB string.
+   * A non-super actor can only create roles whose permissions are a subset of their own.
    */
-  async createRole(data: CreateRoleInput): Promise<RoleDto> {
+  async createRole(data: CreateRoleInput, actor: Actor): Promise<RoleDto> {
     const keyNormalized = data.key.trim().toLowerCase();
     const nameTrimmed = data.name.trim();
+
+    const features = canonicalizeFeatures(data.features);
+    assertWithinActorPermissions(actor, features, "create a role");
 
     // Check unique key
     const existing = await query<{ id: string }>(
@@ -171,7 +181,7 @@ export class RoleService {
     }
 
     // Serialize features to $$$::format
-    const permissionsString = serializeFeaturesToDb(data.features);
+    const permissionsString = serializeGranted(features);
 
     const insertSql = `
       INSERT INTO platform_roles (name, key, scope, description, is_active, is_system, permissions)
@@ -190,22 +200,36 @@ export class RoleService {
         0 AS assigned_count;
     `;
 
-    const result = await query<RoleDbRow>(insertSql, [
-      data.name.trim(),
-      keyNormalized,
-      data.scope.trim(),
-      data.description?.trim() || "",
-      data.isActive !== undefined ? data.isActive : true,
-      permissionsString,
-    ]);
+    let result;
+    try {
+      result = await queryAs<RoleDbRow>(actor.id, insertSql, [
+        data.name.trim(),
+        keyNormalized,
+        data.scope.trim(),
+        data.description?.trim() || "",
+        data.isActive !== undefined ? data.isActive : true,
+        permissionsString,
+      ]);
+    } catch (err) {
+      // Two concurrent requests can both pass the checks above; the unique indexes are the final word.
+      if ((err as { code?: string })?.code === "23505") {
+        throw new BadRequestException("A security role with this key or name already exists");
+      }
+      throw err;
+    }
 
     return mapRowToDto(result.rows[0]);
   }
 
   /**
-   * Updates an existing role
+   * Updates an existing role.
+   *  - the Super Admin role is immutable, and system roles can only be edited by a Super Admin;
+   *  - nobody edits their own role;
+   *  - a non-super actor may only touch a role whose current permissions AND new permissions are a
+   *    subset of their own (so edit_roles can never be used to grant oneself or others more power,
+   *    or to rename/deactivate a role stronger than the actor's).
    */
-  async updateRole(id: string, data: UpdateRoleInput): Promise<RoleDto> {
+  async updateRole(id: string, data: UpdateRoleInput, actor: Actor): Promise<RoleDto> {
     // Check if role exists
     const existing = await query<RoleDbRow>("SELECT * FROM platform_roles WHERE id = $1 LIMIT 1;", [
       id,
@@ -215,6 +239,25 @@ export class RoleService {
     }
 
     const current = existing.rows[0];
+
+    if (current.key === "super_admin") {
+      throw new ForbiddenException("The Super Admin role is protected and cannot be edited");
+    }
+    if (actor.roleId && actor.roleId === id) {
+      throw new ForbiddenException("Privilege Escalation Prevention: you cannot edit your own role");
+    }
+    if (current.is_system && !actor.isSuperAdmin) {
+      throw new ForbiddenException("Only a Super Administrator can edit a system role");
+    }
+    assertWithinActorPermissions(
+      actor,
+      deserializeFeaturesFromDb(current.permissions),
+      "edit a role that grants more than you hold"
+    );
+    const newFeatures = data.features !== undefined ? canonicalizeFeatures(data.features) : undefined;
+    if (newFeatures) {
+      assertWithinActorPermissions(actor, newFeatures, "grant these permissions");
+    }
 
     if (data.name !== undefined) {
       const nameTrimmed = data.name.trim();
@@ -233,8 +276,7 @@ export class RoleService {
       data.description !== undefined ? data.description.trim() : current.description || "";
     const updatedIsActive = data.isActive !== undefined ? data.isActive : current.is_active;
 
-    const updatedPermissions =
-      data.features !== undefined ? serializeFeaturesToDb(data.features) : current.permissions;
+    const updatedPermissions = newFeatures ? serializeGranted(newFeatures) : current.permissions;
 
     const updateSql = `
       UPDATE platform_roles
@@ -259,7 +301,7 @@ export class RoleService {
         updated_at;
     `;
 
-    const result = await query<RoleDbRow>(updateSql, [
+    const result = await queryAs<RoleDbRow>(actor.id, updateSql, [
       updatedName,
       updatedScope,
       updatedDescription,
@@ -284,23 +326,32 @@ export class RoleService {
   /**
    * Deletes a role (blocks deletion of is_system baseline roles)
    */
-  async deleteRole(id: string): Promise<{ id: string; name: string }> {
+  async deleteRole(id: string, actor: Actor): Promise<{ id: string; name: string }> {
     const existing = await query<RoleDbRow>(
-      "SELECT id, name, is_system FROM platform_roles WHERE id = $1 LIMIT 1;",
+      "SELECT id, name, key, is_system, permissions FROM platform_roles WHERE id = $1 LIMIT 1;",
       [id]
     );
     if (existing.rows.length === 0) {
       throw new NotFoundException(`Security role with ID '${id}' was not found`);
     }
 
-    if (existing.rows[0].is_system) {
+    if (existing.rows[0].is_system || existing.rows[0].key === "super_admin") {
       throw new BadRequestException("System baseline roles are protected and cannot be deleted");
     }
+    if (actor.roleId && actor.roleId === id) {
+      throw new ForbiddenException("Privilege Escalation Prevention: you cannot delete your own role");
+    }
+    // Deleting a role strips every holder of it: only someone who holds at least that much may do so.
+    assertWithinActorPermissions(
+      actor,
+      deserializeFeaturesFromDb(existing.rows[0].permissions),
+      "delete a role that grants more than you hold"
+    );
 
     // Unassign any users currently assigned to this role before deleting
-    await query("UPDATE platform_admins SET role_id = NULL WHERE role_id = $1;", [id]);
+    await queryAs(actor.id, "UPDATE platform_admins SET role_id = NULL WHERE role_id = $1;", [id]);
 
-    await query("DELETE FROM platform_roles WHERE id = $1;", [id]);
+    await queryAs(actor.id, "DELETE FROM platform_roles WHERE id = $1;", [id]);
 
     return { id, name: existing.rows[0].name };
   }

@@ -8,6 +8,7 @@ import {
   roleIdParamSchema,
 } from "../validators/role.validator";
 import { HTTPSTATUS } from "../config/http.config";
+import { toActor } from "../utils/authz";
 
 /**
  * GET /api/roles
@@ -44,7 +45,7 @@ export const getRoleByIdController = asyncHandler(async (req: Request, res: Resp
  */
 export const createRoleController = asyncHandler(async (req: Request, res: Response) => {
   const body = createRoleSchema.parse(req.body);
-  const role = await roleService.createRole(body);
+  const role = await roleService.createRole(body, toActor(req.user));
 
   res.status(HTTPSTATUS.CREATED).json({
     message: "Security role created successfully",
@@ -59,7 +60,7 @@ export const createRoleController = asyncHandler(async (req: Request, res: Respo
 export const updateRoleController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = roleIdParamSchema.parse(req.params);
   const body = updateRoleSchema.parse(req.body);
-  const role = await roleService.updateRole(id, body);
+  const role = await roleService.updateRole(id, body, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: "Security role updated successfully",
@@ -73,7 +74,7 @@ export const updateRoleController = asyncHandler(async (req: Request, res: Respo
  */
 export const deleteRoleController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = roleIdParamSchema.parse(req.params);
-  const result = await roleService.deleteRole(id);
+  const result = await roleService.deleteRole(id, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: `Security role '${result.name}' deleted successfully`,

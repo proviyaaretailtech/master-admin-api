@@ -40,10 +40,16 @@ export class PermissionService {
 
       if (res.rows.length > 0) {
         const row = res.rows[0];
+        const { permissions: _, ...roleSummary } = row;
+
+        // A deactivated role grants nothing (and is never super admin), whoever it is assigned to.
+        if (row.is_active === false) {
+          return { role: roleSummary, permissions: [], isSuperAdmin: false };
+        }
+
         const permissions = deserializeFeaturesFromDb(row.permissions);
         const isSuperAdmin = row.key === "super_admin";
 
-        const { permissions: _, ...roleSummary } = row;
         return {
           role: roleSummary,
           permissions,

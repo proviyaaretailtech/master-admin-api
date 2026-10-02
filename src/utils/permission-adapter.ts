@@ -5,6 +5,8 @@
  *   Format: module_id::access_level::action1$action2$$$module_id_2::access_level::action1
  */
 
+import { BadRequestException } from "./app-error";
+
 export type AccessLevel = "none" | "read_only" | "full";
 
 export interface GranularAction {
@@ -409,6 +411,8 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
   },
 ];
 
+const DELIMITERS = /[:$]/;
+
 /**
  * Serializes frontend FeaturePermission[] into the compact DB string
  * e.g. "feat_partner_review::full::approve_partner$reject_partner$$$feat_locations::read_only::view_locations"
@@ -420,14 +424,85 @@ export function serializeFeaturesToDb(features: FeaturePermission[]): string {
 
   return features
     .map((feat) => {
-      const enabledActions = (feat.actions || [])
-        .filter((a) => a.enabled)
-        .map((a) => a.key.trim())
-        .join("$");
+      const keys = (feat.actions || []).filter((a) => a.enabled).map((a) => a.key.trim());
       const level = feat.accessLevel || "none";
-      return `${feat.id}::${level}::${enabledActions}`;
+      // The DB format uses ':' and '$' as delimiters: an id or action key containing one would let a caller
+      // smuggle extra features (and so extra permissions) into the stored string. Refuse, never escape.
+      if (DELIMITERS.test(feat.id) || keys.some((k) => DELIMITERS.test(k))) {
+        throw new BadRequestException("Permission ids and action keys must not contain ':' or '$'");
+      }
+      return `${feat.id}::${level}::${keys.join("$")}`;
     })
     .join("$$$");
+}
+
+const LEVEL_RANK: Record<AccessLevel, number> = { none: 0, read_only: 1, full: 2 };
+
+/**
+ * Validates a submitted permission matrix against the known feature template and returns the
+ * canonical, complete matrix: every known feature present, unknown ids/actions rejected, duplicates
+ * rejected, and a feature with access level "none" carrying no enabled actions (they would be inert
+ * but could later be revived by raising the level).
+ */
+export function canonicalizeFeatures(input: Array<Partial<FeaturePermission> & { id: string }>): FeaturePermission[] {
+  const seen = new Set<string>();
+  const byId = new Map<string, FeaturePermission>();
+  for (const f of input) {
+    const template = DEFAULT_FEATURES_TEMPLATE.find((t) => t.id === f.id);
+    if (!template) {
+      throw new BadRequestException(`Unknown permission feature '${f.id}'`);
+    }
+    if (seen.has(f.id)) {
+      throw new BadRequestException(`Permission feature '${f.id}' is listed more than once`);
+    }
+    seen.add(f.id);
+    const level: AccessLevel = (f.accessLevel as AccessLevel) ?? "none";
+    if (!(level in LEVEL_RANK)) {
+      throw new BadRequestException(`Invalid access level '${String(f.accessLevel)}' for '${f.id}'`);
+    }
+    const enabledKeys = new Set<string>();
+    for (const a of f.actions ?? []) {
+      if (!template.actions.some((ta) => ta.key === a.key)) {
+        throw new BadRequestException(`Unknown permission action '${a.key}' for feature '${f.id}'`);
+      }
+      if (a.enabled) enabledKeys.add(a.key);
+    }
+    byId.set(f.id, {
+      ...template,
+      accessLevel: level,
+      actions: template.actions.map((ta) => ({ ...ta, enabled: level !== "none" && enabledKeys.has(ta.key) })),
+    });
+  }
+  return DEFAULT_FEATURES_TEMPLATE.map(
+    (t) =>
+      byId.get(t.id) ?? {
+        ...t,
+        accessLevel: "none" as const,
+        actions: t.actions.map((a) => ({ ...a, enabled: false })),
+      }
+  );
+}
+
+/**
+ * Lists what `granted` would give beyond what `held` already gives (empty = granted is a subset of held).
+ * Compared per feature: the access level may not be higher, and every enabled action must also be
+ * enabled in the holder's matrix.
+ */
+export function permissionsBeyond(held: FeaturePermission[], granted: FeaturePermission[]): string[] {
+  const beyond: string[] = [];
+  for (const g of granted) {
+    const h = held.find((x) => x.id === g.id);
+    const heldRank = LEVEL_RANK[h?.accessLevel ?? "none"];
+    if (LEVEL_RANK[g.accessLevel] > heldRank) {
+      beyond.push(`${g.id} (${g.accessLevel})`);
+    }
+    for (const a of g.actions ?? []) {
+      if (!a.enabled) continue;
+      const holds = !!h?.actions?.some((x) => x.key === a.key && x.enabled);
+      if (!holds) beyond.push(`${g.id}.${a.key}`);
+    }
+  }
+  return beyond;
 }
 
 /**

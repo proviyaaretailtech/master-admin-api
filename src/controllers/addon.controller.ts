@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { asyncHandler } from "../middlewares/asyncHandler.middleware";
 import { HTTPSTATUS } from "../config/http.config";
+import { toActor } from "../utils/authz";
 import {
   addonParamsSchema,
   createAddonSchema,
@@ -53,7 +54,7 @@ export const getAddonByIdController = asyncHandler(async (req: Request, res: Res
  */
 export const createAddonController = asyncHandler(async (req: Request, res: Response) => {
   const body = createAddonSchema.parse(req.body);
-  const addon = await addonService.createAddon(body, req.user?.id);
+  const addon = await addonService.createAddon(body, toActor(req.user));
 
   res.status(HTTPSTATUS.CREATED).json({
     message: "Commercial add-on created successfully",
@@ -67,7 +68,7 @@ export const createAddonController = asyncHandler(async (req: Request, res: Resp
 export const updateAddonController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = addonParamsSchema.parse(req.params);
   const body = updateAddonSchema.parse(req.body);
-  const addon = await addonService.updateAddon(id, body, req.user?.id);
+  const addon = await addonService.updateAddon(id, body, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: "Commercial add-on updated successfully",
@@ -80,7 +81,7 @@ export const updateAddonController = asyncHandler(async (req: Request, res: Resp
  */
 export const publishAddonController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = addonParamsSchema.parse(req.params);
-  const addon = await addonService.publishAddon(id, req.user?.id);
+  const addon = await addonService.publishAddon(id, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: `Commercial add-on '${addon.name}' published successfully`,
@@ -93,7 +94,7 @@ export const publishAddonController = asyncHandler(async (req: Request, res: Res
  */
 export const retireAddonController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = addonParamsSchema.parse(req.params);
-  const addon = await addonService.retireAddon(id, req.user?.id);
+  const addon = await addonService.retireAddon(id, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: `Commercial add-on '${addon.name}' retired successfully`,
@@ -106,7 +107,7 @@ export const retireAddonController = asyncHandler(async (req: Request, res: Resp
  */
 export const deleteAddonController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = addonParamsSchema.parse(req.params);
-  const result = await addonService.deleteAddon(id);
+  const result = await addonService.deleteAddon(id, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json(result);
 });

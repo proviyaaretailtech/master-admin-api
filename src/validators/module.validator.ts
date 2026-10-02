@@ -17,7 +17,7 @@ export const createModuleSchema = z.object({
     .min(2, "Module name must be at least 2 characters")
     .max(150, "Module name cannot exceed 150 characters"),
   category: z.string().trim().max(100).default("Core"),
-  description: z.string().trim().optional().default(""),
+  description: z.string().trim().max(1000).optional().default(""),
   is_active: z.boolean().default(true),
 });
 

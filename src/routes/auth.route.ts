@@ -5,10 +5,12 @@ import {
   getMeController,
 } from "../controllers/auth.controller";
 import { requireAuth } from "../middlewares/auth.middleware";
+import { authRateLimiter } from "../config/security.config";
 
 const authRoutes = Router();
 
-authRoutes.post("/login", loginController);
+// Brute-force protection applies to login only (not to /me or /logout).
+authRoutes.post("/login", authRateLimiter, loginController);
 authRoutes.post("/logout", logoutController);
 authRoutes.get("/me", requireAuth, getMeController);
 

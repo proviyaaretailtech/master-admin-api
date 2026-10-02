@@ -1,6 +1,29 @@
-import { query } from "../config/database.config";
+import { query, queryAs } from "../config/database.config";
 import { NotFoundException, BadRequestException } from "../utils/app-error";
 import { CreatePlanInput, UpdatePlanInput, GetPlansQueryInput } from "../validators/plan.validator";
+import { Actor } from "../utils/authz";
+import {
+  PLAN_LIFECYCLE,
+  CommercialStatus,
+  authorizeCreateStatus,
+  resolveUpdateStatus,
+  assertLiveEditAllowed,
+} from "../utils/lifecycle";
+
+type VersionType = CommercialPlanModel["version_type"];
+
+/** version_type follows the lifecycle (Draft / Active / Legacy); only "Custom" is a client choice. */
+function versionTypeFor(status: CommercialStatus, requested?: string): VersionType {
+  if (status === "Retired") return "Legacy";
+  if (requested === "Custom") return "Custom";
+  return status === "Published" ? "Active" : "Draft";
+}
+
+/** Fields written by applyUpdate: the client-editable ones plus the lifecycle fields set by the server. */
+type PlanFieldUpdate = Omit<UpdatePlanInput, "status" | "version_type"> & {
+  status?: CommercialStatus;
+  version_type?: VersionType;
+};
 
 export interface CommercialPlanModel {
   id: string;
@@ -166,7 +189,12 @@ export class PlanService {
   /**
    * Creates a new commercial plan
    */
-  async create(data: CreatePlanInput, userId?: string): Promise<CommercialPlanModel> {
+  async create(data: CreatePlanInput, actor: Actor): Promise<CommercialPlanModel> {
+    const userId = actor.id;
+    // status is a lifecycle request, honoured only with publish_plan / retire_plan (never via create_plan alone)
+    const status = authorizeCreateStatus(actor, data.status, PLAN_LIFECYCLE);
+    const versionType = versionTypeFor(status, data.version_type);
+
     const existing = await query(
       `SELECT id FROM commercial_plans WHERE LOWER(plan_code) = LOWER($1)`,
       [data.plan_code]
@@ -177,7 +205,8 @@ export class PlanService {
 
     const sanitizedModules = await this.sanitizeModules(data.modules || []);
 
-    const res = await query<CommercialPlanModel>(
+    const res = await queryAs<CommercialPlanModel>(
+      userId,
       `INSERT INTO commercial_plans (
         plan_code, name, version, version_type, status, price, currency_code,
         cadence, tax_note, trial_days, effective_date, locations_limit,
@@ -189,8 +218,8 @@ export class PlanService {
         data.plan_code,
         data.name,
         data.version || "v1.0",
-        data.version_type || "Draft",
-        data.status || "Draft",
+        versionType,
+        status,
         data.price || 0,
         data.currency || "INR",
         data.cadence || "Monthly",
@@ -217,9 +246,31 @@ export class PlanService {
   }
 
   /**
-   * Updates an existing commercial plan
+   * Updates an existing commercial plan (edit_plan). Lifecycle changes are not part of editing:
+   * `status` only takes effect when the actor also holds publish_plan / retire_plan, and editing a
+   * Published plan (live terms) needs publish_plan as well. See utils/lifecycle.ts.
    */
-  async update(id: string, data: UpdatePlanInput, userId?: string): Promise<CommercialPlanModel> {
+  async update(id: string, data: UpdatePlanInput, actor: Actor): Promise<CommercialPlanModel> {
+    const current = await this.getById(id);
+
+    const { status: requestedStatus, version_type: requestedVersionType, ...edits } = data;
+    const hasFieldEdits =
+      Object.values(edits).some((v) => v !== undefined) || requestedVersionType === "Custom";
+    assertLiveEditAllowed(actor, current.status, hasFieldEdits, PLAN_LIFECYCLE);
+    const nextStatus = resolveUpdateStatus(actor, current.status, requestedStatus, PLAN_LIFECYCLE);
+
+    const fields: PlanFieldUpdate = { ...edits };
+    if (nextStatus) {
+      fields.status = nextStatus;
+      fields.version_type = versionTypeFor(nextStatus, requestedVersionType);
+    } else if (requestedVersionType === "Custom" && current.status !== "Retired") {
+      fields.version_type = "Custom";
+    }
+    return this.applyUpdate(id, fields, actor.id);
+  }
+
+  /** Writes already-authorized field changes (callers are responsible for the checks above). */
+  private async applyUpdate(id: string, data: PlanFieldUpdate, userId?: string): Promise<CommercialPlanModel> {
     await this.getById(id);
 
     if (data.plan_code) {
@@ -312,7 +363,8 @@ export class PlanService {
     }
 
     values.push(id);
-    await query(
+    await queryAs(
+      userId,
       `UPDATE commercial_plans SET ${updates.join(", ")}, updated_at = now() WHERE id = $${idx}`,
       values
     );
@@ -323,27 +375,27 @@ export class PlanService {
   /**
    * Publishes a commercial plan (moves from Draft to Published & Active)
    */
-  async publish(id: string, userId?: string): Promise<CommercialPlanModel> {
+  async publish(id: string, actor: Actor): Promise<CommercialPlanModel> {
     const plan = await this.getById(id);
 
     if (plan.status === "Published") {
       return plan;
     }
 
-    return this.update(
+    return this.applyUpdate(
       id,
       {
         status: "Published",
         version_type: "Active",
       },
-      userId
+      actor.id
     );
   }
 
   /**
    * Duplicates an existing commercial plan into a Draft copy
    */
-  async duplicate(id: string, userId?: string): Promise<CommercialPlanModel> {
+  async duplicate(id: string, actor: Actor): Promise<CommercialPlanModel> {
     const source = await this.getById(id);
     // time in seconds till now last 5 charaters
     const random = Date.now().toString(36).slice(-5);
@@ -369,35 +421,45 @@ export class PlanService {
         is_unlimited_users: source.is_unlimited_users,
         modules: source.modules,
       },
-      userId
+      actor
     );
   }
 
   /**
    * Retires or archives a plan
    */
-  async retire(id: string, userId?: string): Promise<CommercialPlanModel> {
-    return this.update(
+  async retire(id: string, actor: Actor): Promise<CommercialPlanModel> {
+    return this.applyUpdate(
       id,
       {
         status: "Retired",
         version_type: "Legacy",
       },
-      userId
+      actor.id
     );
   }
 
   /**
    * Deletes a plan if it has no active subscriptions
    */
-  async delete(id: string): Promise<void> {
+  async delete(id: string, actor: Actor): Promise<void> {
     const plan = await this.getById(id);
     if ((plan.assignments_count || 0) > 0) {
       throw new BadRequestException(
         "Cannot delete plan with active tenant subscriptions. Retire it instead."
       );
     }
-    await query(`DELETE FROM commercial_plans WHERE id = $1`, [id]);
+    // Any subscription history (not just Active ones) keeps the plan: the foreign key would refuse the delete.
+    const history = await query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM subscriptions WHERE plan_id = $1;",
+      [id]
+    );
+    if ((history.rows[0]?.n ?? 0) > 0) {
+      throw new BadRequestException(
+        "Cannot delete a plan that has tenant subscription history. Retire it instead."
+      );
+    }
+    await queryAs(actor.id, `DELETE FROM commercial_plans WHERE id = $1`, [id]);
   }
 }
 

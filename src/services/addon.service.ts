@@ -1,6 +1,16 @@
-import { query } from "../config/database.config";
+import { query, queryAs } from "../config/database.config";
 import { NotFoundException, BadRequestException } from "../utils/app-error";
 import { CreateAddonInput, UpdateAddonInput, GetAddonsQuery } from "../validators/addon.validator";
+import { Actor } from "../utils/authz";
+import {
+  ADDON_LIFECYCLE,
+  CommercialStatus,
+  authorizeCreateStatus,
+  resolveUpdateStatus,
+  assertLiveEditAllowed,
+} from "../utils/lifecycle";
+
+type AddonFieldUpdate = Omit<UpdateAddonInput, "status"> & { status?: CommercialStatus };
 
 export interface AddonDto {
   id: string;
@@ -252,7 +262,13 @@ export class AddonService {
   /**
    * Creates a new commercial add-on
    */
-  async createAddon(data: CreateAddonInput, userId?: string): Promise<AddonDto> {
+  async createAddon(data: CreateAddonInput, actor: Actor): Promise<AddonDto> {
+    const userId = actor.id;
+    // status is a lifecycle request: Published / Retired need publish_addon / retire_addon, not just create_addon
+    const status = authorizeCreateStatus(actor, data.status, ADDON_LIFECYCLE);
+    if (data.max_quantity < data.min_quantity) {
+      throw new BadRequestException("Maximum quantity cannot be lower than the minimum quantity");
+    }
     const addonCodeNormalized = data.addon_code.trim();
 
     // Check unique addon_code
@@ -280,12 +296,12 @@ export class AddonService {
       RETURNING *, 0 AS active_units_count, 0 AS assigned_count;
     `;
 
-    const result = await query<AddonDbRow>(insertSql, [
+    const result = await queryAs<AddonDbRow>(actor.id, insertSql, [
       data.name.trim(),
       addonCodeNormalized,
       data.description || "",
       data.category.trim(),
-      data.status || "Draft",
+      status,
       data.version || "v1.0",
       data.price,
       data.currency || "INR",
@@ -296,9 +312,10 @@ export class AddonService {
       data.min_quantity ?? 1,
       data.max_quantity ?? 10,
       compatiblePlansJson,
-      data.billing_sync_status || "Success",
-      data.entitlement_validation_status || "Passed",
-      data.tax_compliance_status || "Pending verification",
+      // Verification statuses are system-managed (set by billing / entitlement / tax checks), never by the client
+      "Success",
+      "Passed",
+      "Pending verification",
       userId || null,
     ]);
 
@@ -306,11 +323,37 @@ export class AddonService {
   }
 
   /**
-   * Updates an existing add-on
+   * Updates an existing add-on (edit_addon). `status` only takes effect when the actor also holds
+   * publish_addon / retire_addon, and editing a Published add-on (live terms) needs publish_addon too.
+   * The verification statuses (billing_sync_status, ...) are system-managed and cannot be set here.
    */
-  async updateAddon(id: string, data: UpdateAddonInput, userId?: string): Promise<AddonDto> {
+  async updateAddon(id: string, data: UpdateAddonInput, actor: Actor): Promise<AddonDto> {
     const existingAddon = await this.getAddonById(id);
 
+    const { status: requestedStatus, ...edits } = data;
+    assertLiveEditAllowed(
+      actor,
+      existingAddon.status,
+      Object.values(edits).some((v) => v !== undefined),
+      ADDON_LIFECYCLE
+    );
+    const min = edits.min_quantity ?? existingAddon.min_quantity;
+    const max = edits.max_quantity ?? existingAddon.max_quantity;
+    if (max < min) {
+      throw new BadRequestException("Maximum quantity cannot be lower than the minimum quantity");
+    }
+    const nextStatus = resolveUpdateStatus(actor, existingAddon.status, requestedStatus, ADDON_LIFECYCLE);
+    const fields: AddonFieldUpdate = { ...edits };
+    if (nextStatus) fields.status = nextStatus;
+    return this.applyAddonUpdate(id, fields, actor.id, existingAddon);
+  }
+
+  private async applyAddonUpdate(
+    id: string,
+    data: AddonFieldUpdate,
+    userId: string | undefined,
+    existingAddon: AddonDto
+  ): Promise<AddonDto> {
     if (
       data.addon_code &&
       data.addon_code.trim().toLowerCase() !== existingAddon.addon_code.toLowerCase()
@@ -390,19 +433,6 @@ export class AddonService {
       updateFields.push(`compatible_plans = $${paramIndex++}::jsonb`);
       values.push(JSON.stringify(data.compatible_plans));
     }
-    if (data.billing_sync_status !== undefined) {
-      updateFields.push(`billing_sync_status = $${paramIndex++}`);
-      values.push(data.billing_sync_status);
-    }
-    if (data.entitlement_validation_status !== undefined) {
-      updateFields.push(`entitlement_validation_status = $${paramIndex++}`);
-      values.push(data.entitlement_validation_status);
-    }
-    if (data.tax_compliance_status !== undefined) {
-      updateFields.push(`tax_compliance_status = $${paramIndex++}`);
-      values.push(data.tax_compliance_status);
-    }
-
     if (userId) {
       updateFields.push(`updated_by = $${paramIndex++}`);
       values.push(userId);
@@ -418,14 +448,15 @@ export class AddonService {
       RETURNING *;
     `;
 
-    await query(updateSql, values);
+    await queryAs(userId, updateSql, values);
     return this.getAddonById(id);
   }
 
   /**
    * Publishes an add-on (transitions status to 'Published')
    */
-  async publishAddon(id: string, userId?: string): Promise<AddonDto> {
+  async publishAddon(id: string, actor: Actor): Promise<AddonDto> {
+    const userId = actor.id;
     await this.getAddonById(id);
     const sql = `
       UPDATE commercial_addons 
@@ -433,14 +464,15 @@ export class AddonService {
       WHERE id = $1
       RETURNING *;
     `;
-    await query(sql, [id, userId || null]);
+    await queryAs(userId, sql, [id, userId || null]);
     return this.getAddonById(id);
   }
 
   /**
    * Retires an add-on (transitions status to 'Retired')
    */
-  async retireAddon(id: string, userId?: string): Promise<AddonDto> {
+  async retireAddon(id: string, actor: Actor): Promise<AddonDto> {
+    const userId = actor.id;
     await this.getAddonById(id);
     const sql = `
       UPDATE commercial_addons 
@@ -448,14 +480,14 @@ export class AddonService {
       WHERE id = $1
       RETURNING *;
     `;
-    await query(sql, [id, userId || null]);
+    await queryAs(userId, sql, [id, userId || null]);
     return this.getAddonById(id);
   }
 
   /**
    * Deletes an add-on if no active organizations are assigned
    */
-  async deleteAddon(id: string): Promise<{ id: string; message: string }> {
+  async deleteAddon(id: string, actor: Actor): Promise<{ id: string; message: string }> {
     const addon = await this.getAddonById(id);
 
     if (addon.assigned_count > 0 || addon.active_units_count > 0) {
@@ -464,7 +496,7 @@ export class AddonService {
       );
     }
 
-    await query("DELETE FROM commercial_addons WHERE id = $1;", [id]);
+    await queryAs(actor.id, "DELETE FROM commercial_addons WHERE id = $1;", [id]);
     return { id, message: `Commercial add-on '${addon.name}' deleted successfully` };
   }
 }

@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { Pool } from "pg";
 import { createClient } from "@supabase/supabase-js";
+import { sslForDatabaseUrl, stripSslParams, isLocalDatabaseUrl } from "../config/ssl.config";
 
 /**
  * Creates (or promotes) a platform administrator: a Supabase auth user plus an Active
@@ -25,7 +26,11 @@ async function main() {
   }
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-  const pool = new Pool({ connectionString: DATABASE_URL, ssl: /127\.0\.0\.1|localhost/.test(DATABASE_URL) ? false : { rejectUnauthorized: false } });
+  // Certificate-verified for a hosted database (DATABASE_SSL_CA / DATABASE_SSL_CA_FILE), see config/ssl.config.ts
+  const pool = new Pool({
+    connectionString: isLocalDatabaseUrl(DATABASE_URL) ? DATABASE_URL : stripSslParams(DATABASE_URL),
+    ssl: sslForDatabaseUrl(DATABASE_URL),
+  });
   try {
     const role = await pool.query<{ id: string }>("SELECT id FROM platform_roles WHERE key = 'super_admin';");
     if (role.rows.length === 0) throw new Error("platform_roles has no super_admin role: apply the shared database migrations first.");

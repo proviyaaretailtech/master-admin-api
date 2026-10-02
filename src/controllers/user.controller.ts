@@ -1,8 +1,14 @@
 import { Request, Response } from "express";
 import { asyncHandler } from "../middlewares/asyncHandler.middleware";
 import { userService } from "../services/user.service";
-import { createUserSchema, updateUserSchema, getUsersQuerySchema } from "../validators/user.validator";
+import {
+  createUserSchema,
+  updateUserSchema,
+  getUsersQuerySchema,
+  userIdParamSchema,
+} from "../validators/user.validator";
 import { HTTPSTATUS } from "../config/http.config";
+import { toActor } from "../utils/authz";
 
 export const getUsersController = asyncHandler(async (req: Request, res: Response) => {
   const query = getUsersQuerySchema.parse(req.query);
@@ -17,7 +23,7 @@ export const getUsersController = asyncHandler(async (req: Request, res: Respons
 
 export const createUserController = asyncHandler(async (req: Request, res: Response) => {
   const body = createUserSchema.parse(req.body);
-  const user = await userService.createUser(body, req.user);
+  const user = await userService.createUser(body, toActor(req.user));
 
   res.status(HTTPSTATUS.CREATED).json({
     message: "User created successfully",
@@ -26,7 +32,7 @@ export const createUserController = asyncHandler(async (req: Request, res: Respo
 });
 
 export const getUserByIdController = asyncHandler(async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const { id } = userIdParamSchema.parse(req.params);
   const user = await userService.getUserById(id);
 
   res.status(HTTPSTATUS.OK).json({
@@ -36,9 +42,9 @@ export const getUserByIdController = asyncHandler(async (req: Request, res: Resp
 });
 
 export const updateUserController = asyncHandler(async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const { id } = userIdParamSchema.parse(req.params);
   const body = updateUserSchema.parse(req.body);
-  const updatedUser = await userService.updateUser(id, body, req.user);
+  const updatedUser = await userService.updateUser(id, body, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: "User updated successfully",
@@ -47,8 +53,8 @@ export const updateUserController = asyncHandler(async (req: Request, res: Respo
 });
 
 export const deleteUserController = asyncHandler(async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const result = await userService.deleteUser(id);
+  const { id } = userIdParamSchema.parse(req.params);
+  const result = await userService.deleteUser(id, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json(result);
 });

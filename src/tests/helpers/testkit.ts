@@ -1,4 +1,5 @@
 import { query } from "../../config/database.config";
+import { DEFAULT_FEATURES_TEMPLATE, serializeFeaturesToDb } from "../../utils/permission-adapter";
 
 let counter = 0;
 const uniq = () => `${Date.now().toString(36)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -78,4 +79,32 @@ export async function cleanup(opts: { orgIds?: string[]; staffIds?: string[]; ro
   for (const id of opts.orgIds ?? []) await query("DELETE FROM organizations WHERE id = $1;", [id]);
   for (const id of opts.staffIds ?? []) await query("DELETE FROM auth.users WHERE id = $1;", [id]);
   for (const key of opts.roleKeys ?? []) await query("DELETE FROM platform_roles WHERE key = $1 AND is_system = false;", [key]);
+}
+
+/**
+ * Builds a stored permission string from a compact spec: { feature_id: [action keys] } (level "full") or
+ * { feature_id: { level: "read_only", actions: [...] } }. "all" enables every action of the feature.
+ */
+export function permString(
+  spec: Record<string, string[] | "all" | { level: "read_only" | "full"; actions: string[] | "all" }>
+): string {
+  const features = DEFAULT_FEATURES_TEMPLATE.filter((f) => spec[f.id] !== undefined).map((f) => {
+    const raw = spec[f.id];
+    const cfg = Array.isArray(raw) || raw === "all" ? { level: "full" as const, actions: raw } : raw;
+    const keys = cfg.actions === "all" ? f.actions.map((a) => a.key) : cfg.actions;
+    return { ...f, accessLevel: cfg.level, actions: f.actions.map((a) => ({ ...a, enabled: keys.includes(a.key) })) };
+  });
+  return serializeFeaturesToDb(features);
+}
+
+/** Plain wire-format features (as the frontend sends them) granting `actions` at full access on one feature. */
+export function wireFeature(featureId: string, actions: string[], level: "none" | "read_only" | "full" = "full") {
+  const f = DEFAULT_FEATURES_TEMPLATE.find((x) => x.id === featureId)!;
+  return { id: featureId, accessLevel: level, actions: f.actions.map((a) => ({ key: a.key, enabled: actions.includes(a.key) })) };
+}
+
+/** Reads a role's stored permission string. */
+export async function rolePermissions(roleId: string): Promise<string> {
+  const r = await query<{ permissions: string }>("SELECT permissions FROM platform_roles WHERE id = $1;", [roleId]);
+  return r.rows[0]?.permissions ?? "";
 }

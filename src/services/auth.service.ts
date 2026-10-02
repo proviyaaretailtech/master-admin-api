@@ -1,5 +1,5 @@
 import { query } from "../config/database.config";
-import { supabaseClient } from "../config/supabase.config";
+import { supabaseClient, supabaseAdmin } from "../config/supabase.config";
 import { UnauthorizedException, ForbiddenException } from "../utils/app-error";
 import { LoginInput } from "../validators/auth.validator";
 import { UserModel } from "../@types/express";
@@ -24,7 +24,7 @@ export class AuthService {
     if (!staff) {
       throw new ForbiddenException("This account does not have access to the control plane");
     }
-    if (staff.status !== "Active") {
+    if ((staff.status ?? "").toLowerCase() !== "active") {
       throw new UnauthorizedException("User account has been deactivated or suspended");
     }
 
@@ -32,6 +32,19 @@ export class AuthService {
 
     const user = await this.hydrate(staff);
     return { user, token: session.session.access_token };
+  }
+
+  /**
+   * Ends the session behind an access token (Supabase "local" scope = this session only). Best effort:
+   * a failure to revoke is logged, never surfaced.
+   */
+  async logout(token?: string): Promise<void> {
+    if (!token) return;
+    try {
+      await supabaseAdmin.auth.admin.signOut(token, "local");
+    } catch (err) {
+      console.warn("Could not revoke the session on logout:", (err as Error)?.message);
+    }
   }
 
   /** Returns the authenticated user's profile with permissions. */

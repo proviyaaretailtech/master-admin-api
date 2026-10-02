@@ -8,6 +8,7 @@ import {
   planParamsSchema,
 } from "../validators/plan.validator";
 import { HTTPSTATUS } from "../config/http.config";
+import { toActor } from "../utils/authz";
 
 /**
  * GET /api/commercials/plans
@@ -44,9 +45,7 @@ export const getPlanByIdController = asyncHandler(async (req: Request, res: Resp
  */
 export const createPlanController = asyncHandler(async (req: Request, res: Response) => {
   const body = createPlanSchema.parse(req.body);
-  const userId = req.user?.id;
-
-  const plan = await planService.create(body, userId);
+  const plan = await planService.create(body, toActor(req.user));
 
   res.status(HTTPSTATUS.CREATED).json({
     message: "Commercial plan created successfully",
@@ -61,9 +60,7 @@ export const createPlanController = asyncHandler(async (req: Request, res: Respo
 export const updatePlanController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = planParamsSchema.parse(req.params);
   const body = updatePlanSchema.parse(req.body);
-  const userId = req.user?.id;
-
-  const plan = await planService.update(id, body, userId);
+  const plan = await planService.update(id, body, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: "Commercial plan updated successfully",
@@ -77,9 +74,7 @@ export const updatePlanController = asyncHandler(async (req: Request, res: Respo
  */
 export const publishPlanController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = planParamsSchema.parse(req.params);
-  const userId = req.user?.id;
-
-  const plan = await planService.publish(id, userId);
+  const plan = await planService.publish(id, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: "Commercial plan published successfully",
@@ -93,9 +88,7 @@ export const publishPlanController = asyncHandler(async (req: Request, res: Resp
  */
 export const duplicatePlanController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = planParamsSchema.parse(req.params);
-  const userId = req.user?.id;
-
-  const plan = await planService.duplicate(id, userId);
+  const plan = await planService.duplicate(id, toActor(req.user));
 
   res.status(HTTPSTATUS.CREATED).json({
     message: "Commercial plan duplicated successfully",
@@ -109,9 +102,7 @@ export const duplicatePlanController = asyncHandler(async (req: Request, res: Re
  */
 export const retirePlanController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = planParamsSchema.parse(req.params);
-  const userId = req.user?.id;
-
-  const plan = await planService.retire(id, userId);
+  const plan = await planService.retire(id, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: "Commercial plan retired successfully",
@@ -125,7 +116,7 @@ export const retirePlanController = asyncHandler(async (req: Request, res: Respo
  */
 export const deletePlanController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = planParamsSchema.parse(req.params);
-  await planService.delete(id);
+  await planService.delete(id, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: "Commercial plan deleted successfully",

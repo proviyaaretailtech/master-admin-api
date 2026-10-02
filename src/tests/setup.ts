@@ -28,6 +28,12 @@ vi.mock("../config/supabase.config", () => {
         : { data: { session: null, user: null }, error: { message: "Invalid login credentials" } };
     },
     admin: {
+      // Records revoked sessions so tests can assert that logout revokes the session.
+      signOut: async (jwt: string, scope?: string) => {
+        const g = globalThis as unknown as { __signOutCalls?: Array<{ jwt: string; scope?: string }> };
+        (g.__signOutCalls ??= []).push({ jwt, scope });
+        return { data: null, error: null };
+      },
       createUser: async ({ email }: { email: string }) => {
         const { query } = await import("../config/database.config");
         const r = await query<{ id: string }>(

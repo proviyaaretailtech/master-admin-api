@@ -1,23 +1,25 @@
 import { z } from "zod";
 
+// Feature ids and action keys are checked against the known permission template in the service
+// (canonicalizeFeatures): the stored format uses ':' and '$' as delimiters, so free-form values are never trusted.
 const actionSchema = z.object({
-  key: z.string().trim().min(1),
-  label: z.string().optional().default(""),
-  description: z.string().optional().default(""),
+  key: z.string().trim().min(1).max(100),
+  label: z.string().max(200).optional().default(""),
+  description: z.string().max(500).optional().default(""),
   enabled: z.boolean(),
 });
 
 const featurePermissionSchema = z.object({
-  id: z.string().trim().min(1),
-  name: z.string().optional().default(""),
+  id: z.string().trim().min(1).max(100),
+  name: z.string().max(200).optional().default(""),
   category: z
     .enum(["commercials", "partner_detail", "organization", "access_control", "system"])
     .optional()
     .default("system"),
-  pagePath: z.string().optional().default(""),
-  description: z.string().optional().default(""),
+  pagePath: z.string().max(200).optional().default(""),
+  description: z.string().max(500).optional().default(""),
   accessLevel: z.enum(["none", "read_only", "full"]).default("none"),
-  actions: z.array(actionSchema).default([]),
+  actions: z.array(actionSchema).max(100).default([]),
 });
 
 export const createRoleSchema = z.object({
@@ -38,7 +40,7 @@ export const createRoleSchema = z.object({
   scope: z.string().trim().max(50).default("One organization"),
   description: z.string().trim().max(500).optional().default(""),
   isActive: z.boolean().default(true),
-  features: z.array(featurePermissionSchema).default([]),
+  features: z.array(featurePermissionSchema).max(100).default([]),
 });
 
 export const updateRoleSchema = z.object({
@@ -46,7 +48,7 @@ export const updateRoleSchema = z.object({
   scope: z.string().trim().max(50).optional(),
   description: z.string().trim().max(500).optional(),
   isActive: z.boolean().optional(),
-  features: z.array(featurePermissionSchema).optional(),
+  features: z.array(featurePermissionSchema).max(100).optional(),
 });
 
 export const roleIdParamSchema = z.object({
@@ -54,8 +56,8 @@ export const roleIdParamSchema = z.object({
 });
 
 export const getRolesQuerySchema = z.object({
-  search: z.string().trim().optional(),
-  scope: z.string().trim().optional(),
+  search: z.string().trim().max(100).optional(),
+  scope: z.string().trim().max(50).optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(50),
 });

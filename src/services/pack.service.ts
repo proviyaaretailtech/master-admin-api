@@ -1,6 +1,16 @@
-import { query } from "../config/database.config";
+import { query, queryAs } from "../config/database.config";
 import { NotFoundException, BadRequestException } from "../utils/app-error";
 import { CreatePackInput, UpdatePackInput, GetPacksQuery } from "../validators/pack.validator";
+import { Actor } from "../utils/authz";
+import {
+  PACK_LIFECYCLE,
+  CommercialStatus,
+  authorizeCreateStatus,
+  resolveUpdateStatus,
+  assertLiveEditAllowed,
+} from "../utils/lifecycle";
+
+type PackFieldUpdate = Omit<UpdatePackInput, "status"> & { status?: CommercialStatus };
 
 export interface PackDto {
   id: string;
@@ -183,7 +193,10 @@ export class PackService {
   /**
    * Creates a new commercial feature pack
    */
-  async createPack(data: CreatePackInput, userId?: string): Promise<PackDto> {
+  async createPack(data: CreatePackInput, actor: Actor): Promise<PackDto> {
+    const userId = actor.id;
+    // status is a lifecycle request: Published / Retired need publish_pack / retire_pack, not just create_pack
+    const status = authorizeCreateStatus(actor, data.status, PACK_LIFECYCLE);
     const packCodeNormalized = data.pack_code.trim();
 
     // Check unique pack_code
@@ -211,11 +224,11 @@ export class PackService {
       RETURNING *, 0 AS assigned_count;
     `;
 
-    const result = await query<PackDbRow>(insertSql, [
+    const result = await queryAs<PackDbRow>(actor.id, insertSql, [
       data.name.trim(),
       packCodeNormalized,
       data.description || "",
-      data.status || "Draft",
+      status,
       data.price,
       data.currency || "INR",
       data.cadence || "Monthly",
@@ -233,11 +246,31 @@ export class PackService {
   }
 
   /**
-   * Updates an existing pack
+   * Updates an existing pack (edit_pack). `status` only takes effect when the actor also holds
+   * publish_pack / retire_pack, and editing a Published pack (live terms) needs publish_pack too.
    */
-  async updatePack(id: string, data: UpdatePackInput, userId?: string): Promise<PackDto> {
+  async updatePack(id: string, data: UpdatePackInput, actor: Actor): Promise<PackDto> {
     const existingPack = await this.getPackById(id);
 
+    const { status: requestedStatus, ...edits } = data;
+    assertLiveEditAllowed(
+      actor,
+      existingPack.status,
+      Object.values(edits).some((v) => v !== undefined),
+      PACK_LIFECYCLE
+    );
+    const nextStatus = resolveUpdateStatus(actor, existingPack.status, requestedStatus, PACK_LIFECYCLE);
+    const fields: PackFieldUpdate = { ...edits };
+    if (nextStatus) fields.status = nextStatus;
+    return this.applyPackUpdate(id, fields, actor.id, existingPack);
+  }
+
+  private async applyPackUpdate(
+    id: string,
+    data: PackFieldUpdate,
+    userId: string | undefined,
+    existingPack: PackDto
+  ): Promise<PackDto> {
     if (
       data.pack_code &&
       data.pack_code.trim().toLowerCase() !== existingPack.pack_code.toLowerCase()
@@ -329,14 +362,15 @@ export class PackService {
       RETURNING *;
     `;
 
-    await query(updateSql, values);
+    await queryAs(userId, updateSql, values);
     return this.getPackById(id);
   }
 
   /**
    * Publishes a pack (transitions status to 'Published')
    */
-  async publishPack(id: string, userId?: string): Promise<PackDto> {
+  async publishPack(id: string, actor: Actor): Promise<PackDto> {
+    const userId = actor.id;
     await this.getPackById(id);
     const sql = `
       UPDATE commercial_packs 
@@ -344,14 +378,15 @@ export class PackService {
       WHERE id = $1
       RETURNING *;
     `;
-    await query(sql, [id, userId || null]);
+    await queryAs(userId, sql, [id, userId || null]);
     return this.getPackById(id);
   }
 
   /**
    * Retires a pack (transitions status to 'Retired')
    */
-  async retirePack(id: string, userId?: string): Promise<PackDto> {
+  async retirePack(id: string, actor: Actor): Promise<PackDto> {
+    const userId = actor.id;
     await this.getPackById(id);
     const sql = `
       UPDATE commercial_packs 
@@ -359,14 +394,14 @@ export class PackService {
       WHERE id = $1
       RETURNING *;
     `;
-    await query(sql, [id, userId || null]);
+    await queryAs(userId, sql, [id, userId || null]);
     return this.getPackById(id);
   }
 
   /**
    * Deletes a pack if no active organizations are assigned
    */
-  async deletePack(id: string): Promise<{ id: string; message: string }> {
+  async deletePack(id: string, actor: Actor): Promise<{ id: string; message: string }> {
     const pack = await this.getPackById(id);
 
     if (pack.assigned_count > 0) {
@@ -375,7 +410,7 @@ export class PackService {
       );
     }
 
-    await query("DELETE FROM commercial_packs WHERE id = $1;", [id]);
+    await queryAs(actor.id, "DELETE FROM commercial_packs WHERE id = $1;", [id]);
     return { id, message: `Commercial pack '${pack.name}' deleted successfully` };
   }
 }

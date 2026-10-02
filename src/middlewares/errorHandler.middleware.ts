@@ -24,10 +24,6 @@ export const errorHandler: ErrorRequestHandler = (
   res: Response,
   _next: NextFunction
 ): void => {
-  if (Env.NODE_ENV === "development") {
-    console.error("Error caught by errorHandler middleware:", error);
-  }
-
   if (error instanceof ZodError) {
     formatZodError(res, error);
     return;
@@ -37,6 +33,15 @@ export const errorHandler: ErrorRequestHandler = (
     res.status(error.statusCode).json({
       message: error.message,
       errorCode: error.errorCode,
+    });
+    return;
+  }
+
+  // Handle malformed JSON bodies (body-parser) as a client error, not a server fault
+  if ((error as unknown as { type?: string }).type === "entity.parse.failed") {
+    res.status(HTTPSTATUS.BAD_REQUEST).json({
+      message: "Malformed JSON request body",
+      errorCode: ErrorCodeEnum.VALIDATION_ERROR,
     });
     return;
   }
@@ -53,6 +58,11 @@ export const errorHandler: ErrorRequestHandler = (
     return;
   }
 
+  // Unexpected fault. The client only ever gets a generic message (database errors, SQL fragments and
+  // stack traces stay on the server); the detail goes to the server log, except while testing.
+  if (Env.NODE_ENV !== "test") {
+    console.error("Unhandled error:", error);
+  }
   res.status(HTTPSTATUS.INTERNAL_SERVER_ERROR).json({
     message: "Internal Server Error",
     errorCode: ErrorCodeEnum.INTERNAL_SERVER_ERROR,

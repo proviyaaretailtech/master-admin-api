@@ -86,8 +86,8 @@ export const getOrganizationsQuerySchema = z.object({
     .max(100, "Limit cannot exceed 100")
     .default(10),
   search: z.string().trim().max(100).optional(),
-  status: z.string().trim().optional(),
-  domain: z.string().trim().optional(),
+  status: z.string().trim().max(50).optional(),
+  domain: z.string().trim().max(100).optional(),
   sortBy: z
     .enum(["business_name", "domain", "status", "email", "phone_number", "created_at"])
     .default("created_at"),

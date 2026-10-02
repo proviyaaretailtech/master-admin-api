@@ -1,17 +1,23 @@
-import express, { Request, Response } from "express";
+import express, { NextFunction, Request, Response } from "express";
 import cors from "cors";
 import { Env } from "./config/env.config";
 import {
   helmetSecurityMiddleware,
   globalRateLimiter,
-  authRateLimiter,
-  allowedCorsOrigins,
+  isCorsOriginAllowed,
+  parseTrustProxy,
 } from "./config/security.config";
 import { errorHandler } from "./middlewares/errorHandler.middleware";
-import { NotFoundException } from "./utils/app-error";
+import { ForbiddenException, NotFoundException } from "./utils/app-error";
 import apiRoutes from "./routes";
 
 const app = express();
+
+// 0. Behind a reverse proxy (Vercel) the client IP must come from the proxy hop, otherwise every
+// request shares the proxy's IP and the rate limiters below become one global bucket (lock-out risk).
+const trustedProxyHops = parseTrustProxy(Env.TRUST_PROXY);
+app.set("trust proxy", trustedProxyHops);
+app.disable("x-powered-by");
 
 // 1. Security HTTP Headers
 app.use(helmetSecurityMiddleware);
@@ -19,20 +25,20 @@ app.use(helmetSecurityMiddleware);
 // 2. Global Rate Limiter
 app.use(globalRateLimiter);
 
-// 3. Strict CORS Origin Policy
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, server-to-server) or Vercel preview/production domains
-      if (!origin || allowedCorsOrigins.includes(origin) || origin.endsWith(".vercel.app")) {
-        callback(null, true);
-      } else {
-        callback(new Error(`CORS error: Origin ${origin} not allowed`));
-      }
-    },
-    credentials: true,
-  })
-);
+// 3. Strict CORS Origin Policy: exact allow-list (CLIENT_ORIGIN) plus the API's own origin. A browser
+// origin that is not allowed is refused outright (403); requests without an Origin (curl, server to
+// server) are unaffected. Credentials are only ever offered to allowed origins.
+const requestHost = (req: Request): string | undefined =>
+  (trustedProxyHops > 0 ? req.get("x-forwarded-host") : undefined) || req.get("host") || undefined;
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  const origin = req.get("origin");
+  if (origin && !isCorsOriginAllowed(origin, requestHost(req))) {
+    next(new ForbiddenException("This origin is not allowed to call the API"));
+    return;
+  }
+  next();
+});
+app.use(cors({ origin: true, credentials: true }));
 
 // 4. Strict Payload and Body Size Limits (Prevents JSON payload bomb / DoS attacks)
 app.use(express.json({ limit: "1mb" }));
@@ -47,8 +53,7 @@ app.get("/", (_req: Request, res: Response) => {
   });
 });
 
-// 6. Strict Rate Limiting on Authentication Endpoints
-app.use(`${Env.BASE_PATH}/auth`, authRateLimiter);
+// 6. Strict rate limiting on login is applied inside routes/auth.route.ts (login only).
 
 // 7. API Routes
 app.use(Env.BASE_PATH, apiRoutes);

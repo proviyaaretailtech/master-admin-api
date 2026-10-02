@@ -8,6 +8,7 @@ import {
   getPacksQuerySchema,
 } from "../validators/pack.validator";
 import { packService } from "../services/pack.service";
+import { toActor } from "../utils/authz";
 
 /**
  * GET /api/commercials/packs
@@ -41,7 +42,7 @@ export const getPackByIdController = asyncHandler(async (req: Request, res: Resp
  */
 export const createPackController = asyncHandler(async (req: Request, res: Response) => {
   const body = createPackSchema.parse(req.body);
-  const pack = await packService.createPack(body, req.user?.id);
+  const pack = await packService.createPack(body, toActor(req.user));
 
   res.status(HTTPSTATUS.CREATED).json({
     message: "Commercial pack created successfully",
@@ -55,7 +56,7 @@ export const createPackController = asyncHandler(async (req: Request, res: Respo
 export const updatePackController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = packParamsSchema.parse(req.params);
   const body = updatePackSchema.parse(req.body);
-  const pack = await packService.updatePack(id, body, req.user?.id);
+  const pack = await packService.updatePack(id, body, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: "Commercial pack updated successfully",
@@ -68,7 +69,7 @@ export const updatePackController = asyncHandler(async (req: Request, res: Respo
  */
 export const publishPackController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = packParamsSchema.parse(req.params);
-  const pack = await packService.publishPack(id, req.user?.id);
+  const pack = await packService.publishPack(id, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: `Commercial pack '${pack.name}' published successfully`,
@@ -81,7 +82,7 @@ export const publishPackController = asyncHandler(async (req: Request, res: Resp
  */
 export const retirePackController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = packParamsSchema.parse(req.params);
-  const pack = await packService.retirePack(id, req.user?.id);
+  const pack = await packService.retirePack(id, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json({
     message: `Commercial pack '${pack.name}' retired successfully`,
@@ -94,7 +95,7 @@ export const retirePackController = asyncHandler(async (req: Request, res: Respo
  */
 export const deletePackController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = packParamsSchema.parse(req.params);
-  const result = await packService.deletePack(id);
+  const result = await packService.deletePack(id, toActor(req.user));
 
   res.status(HTTPSTATUS.OK).json(result);
 });

@@ -1,12 +1,14 @@
 import { Pool, PoolConfig, QueryResult, QueryResultRow } from "pg";
 import { Env } from "./env.config";
+import { isLocalDatabaseUrl, sslForDatabaseUrl, stripSslParams } from "./ssl.config";
 
 /**
  * Builds PoolConfig supporting IPv4 pooler for Supabase
  */
-function buildPoolConfig(): PoolConfig {
-  const rawUrl = Env.DATABASE_URL || process.env.DATABASE_URL || "";
-
+export function buildPoolConfig(
+  rawUrl: string = Env.DATABASE_URL || process.env.DATABASE_URL || "",
+  env: NodeJS.ProcessEnv = process.env
+): PoolConfig {
   if (!rawUrl) {
     console.warn("⚠️ DATABASE_URL is not set. Database operations will fail.");
     return {
@@ -28,17 +30,20 @@ function buildPoolConfig(): PoolConfig {
       user: `postgres.${projectRef}`,
       password: passRaw,
       database,
-      ssl: { rejectUnauthorized: false },
+      // Certificate-verified (see ssl.config.ts); a hosted database is never local.
+      ssl: sslForDatabaseUrl("postgresql://remote.invalid/", env),
       max: 10,
       idleTimeoutMillis: 30000,
     };
   }
 
-  const isLocal = rawUrl.includes("localhost") || rawUrl.includes("127.0.0.1");
-
+  const url = rawUrl.trim();
+  const local = isLocalDatabaseUrl(url);
   return {
-    connectionString: rawUrl.trim(),
-    ssl: isLocal ? false : { rejectUnauthorized: false },
+    // For a remote database the TLS settings below are authoritative: drop sslmode/ssl from the URL, which
+    // node-postgres would otherwise let override them (and silently discard a pinned CA).
+    connectionString: local ? url : stripSslParams(url),
+    ssl: local ? false : sslForDatabaseUrl(url, env),
     max: 10,
     idleTimeoutMillis: 30000,
   };
@@ -59,6 +64,33 @@ export const query = async <T extends QueryResultRow = any>(
   params?: any[]
 ): Promise<QueryResult<T>> => {
   return pool.query<T>(text, params);
+};
+
+/**
+ * Runs ONE write statement attributed to a staff member. The control plane connects as the database owner, so
+ * the audit triggers (audit_row_change) would otherwise record no actor; setting the request's JWT subject for
+ * the duration of a transaction makes auth.uid() - and so audit_logs.actor_user_id - the staff member who
+ * made the change. Use it for privileged mutations (roles, staff, plan / pack / add-on lifecycle).
+ */
+export const queryAs = async <T extends QueryResultRow = QueryResultRow>(
+  actorId: string | null | undefined,
+  text: string,
+  params?: unknown[]
+): Promise<QueryResult<T>> => {
+  if (!actorId) return pool.query<T>(text, params);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('request.jwt.claim.sub', $1, true);", [actorId]);
+    const result = await client.query<T>(text, params);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 export default pool;
