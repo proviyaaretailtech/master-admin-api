@@ -26,7 +26,7 @@ function buildPoolConfig(): PoolConfig {
       host: "aws-0-ap-south-1.pooler.supabase.com",
       port: 6543,
       user: `postgres.${projectRef}`,
-      password: passRaw.replace(/^"|"$/g, ""),
+      password: passRaw,
       database,
       ssl: { rejectUnauthorized: false },
       max: 10,

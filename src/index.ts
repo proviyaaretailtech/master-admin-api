@@ -1,10 +1,4 @@
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const dotenv = require("dotenv");
-  dotenv.config();
-} catch {
-  // Dotenv is optional in serverless environments like Vercel where process.env is preloaded
-}
+import "dotenv/config";
 import express, { Request, Response } from "express";
 import cors from "cors";
 import { Env } from "./config/env.config";
