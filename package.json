@@ -13,7 +13,7 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "format:write": "prettier --write \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
-    "test": "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/ma_test vitest run",
+    "test": "GLOBAL_RATE_LIMIT_MAX=100000 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/ma_test vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:db": "../../database/make_testdb.sh ma_test",

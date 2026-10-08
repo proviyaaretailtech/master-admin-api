@@ -2,26 +2,11 @@ import { Request, Response } from "express";
 import { asyncHandler } from "../middlewares/asyncHandler.middleware";
 import { organizationService } from "../services/organization.service";
 import {
-  createOrganizationSchema,
   updateOrganizationSchema,
   getOrganizationsQuerySchema,
   organizationIdParamSchema,
 } from "../validators/organization.validator";
 import { HTTPSTATUS } from "../config/http.config";
-
-/**
- * POST /api/organizations
- * Creates a new organization
- */
-export const createOrganizationController = asyncHandler(async (req: Request, res: Response) => {
-  const body = createOrganizationSchema.parse(req.body);
-  const organization = await organizationService.createOrganization(body);
-
-  res.status(HTTPSTATUS.CREATED).json({
-    message: "Organization created successfully",
-    organization,
-  });
-});
 
 /**
  * GET /api/organizations

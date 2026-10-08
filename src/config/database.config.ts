@@ -1,4 +1,4 @@
-import { Pool, PoolConfig, QueryResult, QueryResultRow } from "pg";
+import { Pool, PoolClient, PoolConfig, QueryResult, QueryResultRow, types } from "pg";
 import { Env } from "./env.config";
 import { isLocalDatabaseUrl, sslForDatabaseUrl, stripSslParams } from "./ssl.config";
 
@@ -49,6 +49,10 @@ export function buildPoolConfig(
   };
 }
 
+// Money is stored as integer minor units in bigint columns; node-postgres returns bigint as a string by default.
+// Minor-unit amounts and counts stay far below 2^53, so the API reports them as JSON numbers.
+types.setTypeParser(20, (v: string) => Number(v));
+
 export const pool = new Pool(buildPoolConfig());
 
 pool.on("error", (err) => {
@@ -85,6 +89,29 @@ export const queryAs = async <T extends QueryResultRow = QueryResultRow>(
     const result = await client.query<T>(text, params);
     await client.query("COMMIT");
     return result;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Runs several statements in ONE transaction attributed to a staff member (same audit mechanism as queryAs).
+ * The callback receives a client; commit on return, rollback on throw.
+ */
+export const txAs = async <T>(
+  actorId: string | null | undefined,
+  fn: (client: PoolClient) => Promise<T>
+): Promise<T> => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (actorId) await client.query("SELECT set_config('request.jwt.claim.sub', $1, true);", [actorId]);
+    const out = await fn(client);
+    await client.query("COMMIT");
+    return out;
   } catch (err) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw err;

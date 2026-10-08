@@ -19,7 +19,15 @@ export interface GranularAction {
 export interface FeaturePermission {
   id: string;
   name: string;
-  category: "commercials" | "partner_detail" | "organization" | "access_control" | "system";
+  category:
+    | "commercials"
+    | "partner_detail"
+    | "organization"
+    | "access_control"
+    | "system"
+    | "operations"
+    | "finance"
+    | "platform";
   pagePath: string;
   description: string;
   accessLevel: AccessLevel;
@@ -151,6 +159,24 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
         key: "export_org_csv",
         label: "Export Organization Records",
         description: "Download filtered partner listings as CSV/Excel",
+        enabled: true,
+      },
+      {
+        key: "manage_ordering",
+        label: "Pause / Resume Ordering",
+        description: "Stop or resume an organization accepting orders",
+        enabled: true,
+      },
+      {
+        key: "suspend_org",
+        label: "Suspend / Reactivate Organization",
+        description: "Suspend an organization (shuts it out) or reactivate it",
+        enabled: true,
+      },
+      {
+        key: "archive_org",
+        label: "Archive / Restore Organization",
+        description: "Archive an organization with no open orders, or restore it",
         enabled: true,
       },
     ],
@@ -405,6 +431,278 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
         key: "export_audit_logs",
         label: "Export Security Audit CSV",
         description: "Download immutable audit logs for compliance review",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_riders",
+    name: "Riders: Approval, KYC & Cash Deposits",
+    category: "operations",
+    pagePath: "/riders",
+    description: "Review rider applications, suspend or reactivate riders and confirm cash deposits.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_riders",
+        label: "View Riders",
+        description: "Browse riders, their documents, earnings and cash position",
+        enabled: true,
+      },
+      {
+        key: "approve_rider",
+        label: "Approve Rider",
+        description: "Approve a rider application",
+        enabled: true,
+      },
+      {
+        key: "reject_rider",
+        label: "Reject Rider",
+        description: "Reject a rider application",
+        enabled: true,
+      },
+      {
+        key: "suspend_rider",
+        label: "Suspend Rider",
+        description: "Suspend an approved rider",
+        enabled: true,
+      },
+      {
+        key: "reactivate_rider",
+        label: "Reactivate Rider",
+        description: "Reactivate a suspended rider",
+        enabled: true,
+      },
+      {
+        key: "confirm_cash_deposit",
+        label: "Confirm Cash Deposits",
+        description: "Confirm or reject rider cash deposits",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_rider_pay",
+    name: "Rider Pay & Policy",
+    category: "operations",
+    pagePath: "/rider-pay",
+    description: "Maintain rider rate cards and withdrawal / cash-limit policies per city.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_rider_pay",
+        label: "View Rider Pay",
+        description: "See rate cards and policies",
+        enabled: true,
+      },
+      {
+        key: "edit_rider_pay",
+        label: "Edit Rider Pay",
+        description: "Change rate cards and policies",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_commission",
+    name: "Commission Rules",
+    category: "finance",
+    pagePath: "/commission-rules",
+    description: "Maintain versioned platform commission rules.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_commission",
+        label: "View Commission Rules",
+        description: "See commission rules and their history",
+        enabled: true,
+      },
+      {
+        key: "edit_commission",
+        label: "Edit Commission Rules",
+        description: "Create, replace and deactivate commission rules",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_orders",
+    name: "Orders & Order 360",
+    category: "operations",
+    pagePath: "/orders",
+    description: "Read-only order search and order trace across organizations.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_orders",
+        label: "View Orders",
+        description: "Search orders and open the order trace",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_dispatch",
+    name: "Dispatch Board",
+    category: "operations",
+    pagePath: "/dispatch",
+    description: "Watch delivery jobs and act on them through the dispatch service.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_dispatch",
+        label: "View Dispatch Board",
+        description: "See delivery jobs and exceptions",
+        enabled: true,
+      },
+      {
+        key: "manage_dispatch",
+        label: "Manage Dispatch",
+        description: "Reassign or cancel jobs and resolve exceptions",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_finance",
+    name: "Finance Control",
+    category: "finance",
+    pagePath: "/finance",
+    description: "Platform money: payments, settlements, payouts, ledger and reconciliation.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_finance",
+        label: "View Finance",
+        description: "See overview, payments, settlements, payouts, ledger and reconciliation",
+        enabled: true,
+      },
+      {
+        key: "run_settlement",
+        label: "Run Settlement",
+        description: "Run a settlement for an organization period",
+        enabled: true,
+      },
+      {
+        key: "approve_settlement",
+        label: "Approve Settlement",
+        description: "Approve a draft settlement",
+        enabled: true,
+      },
+      {
+        key: "approve_payout",
+        label: "Approve Payout",
+        description: "Approve a pending payout",
+        enabled: true,
+      },
+      {
+        key: "mark_payout_paid",
+        label: "Mark Payout Paid",
+        description: "Record that an approved payout was paid",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_dashboard",
+    name: "Operations Dashboard",
+    category: "platform",
+    pagePath: "/dashboard",
+    description: "Live operational summary for the platform.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_dashboard",
+        label: "View Dashboard",
+        description: "See the operational summary",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_integrations",
+    name: "Integration Centre (CRM / CMS)",
+    category: "platform",
+    pagePath: "/integrations",
+    description: "Register and operate CRM, CMS and other integrations.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_integrations",
+        label: "View Integrations",
+        description: "See integrations, logs and mappings",
+        enabled: true,
+      },
+      {
+        key: "manage_integrations",
+        label: "Manage Integrations",
+        description: "Create, edit, test, sync, disable and rotate credentials",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_api_webhooks",
+    name: "API Apps & Webhooks",
+    category: "platform",
+    pagePath: "/api-webhooks",
+    description: "Issue API keys and manage webhook endpoints and deliveries.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_api_webhooks",
+        label: "View API & Webhooks",
+        description: "See API apps, webhooks, deliveries and API logs",
+        enabled: true,
+      },
+      {
+        key: "manage_api_webhooks",
+        label: "Manage API & Webhooks",
+        description: "Create, rotate and revoke keys; manage webhooks and retries",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_org_subscription",
+    name: "Organization Subscription & Entitlements",
+    category: "organization",
+    pagePath: "/organizations/subscription",
+    description: "See an organization's entitlements and change its plan.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_subscription",
+        label: "View Entitlements",
+        description: "See an organization's plan and entitlements",
+        enabled: true,
+      },
+      {
+        key: "change_plan",
+        label: "Change Plan",
+        description: "Move an organization to another plan",
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: "feat_invitations",
+    name: "Invitations",
+    category: "access_control",
+    pagePath: "/invitations",
+    description: "Invite people into organizations and manage pending invitations.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_invitations",
+        label: "View Invitations",
+        description: "See invitations and their status",
+        enabled: true,
+      },
+      {
+        key: "manage_invitations",
+        label: "Manage Invitations",
+        description: "Create, revoke and resend invitations",
         enabled: true,
       },
     ],

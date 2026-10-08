@@ -12,11 +12,12 @@ export const helmetSecurityMiddleware = helmet({
 
 /**
  * Global API rate limiter (prevents DDoS and resource exhaustion)
- * Limits each IP to 200 requests per 15 minutes window
+ * Limits each IP to 200 requests per 15 minutes window (GLOBAL_RATE_LIMIT_MAX overrides the ceiling; the test script
+ * raises it because one test file drives hundreds of requests from a single address)
  */
 export const globalRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
+  max: Number(process.env.GLOBAL_RATE_LIMIT_MAX) > 0 ? Number(process.env.GLOBAL_RATE_LIMIT_MAX) : 200,
   standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   message: {

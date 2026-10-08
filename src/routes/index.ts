@@ -9,8 +9,14 @@ import planRoutes from "./plan.route";
 import moduleRoutes from "./module.route";
 import packRoutes from "./pack.route";
 import addonRoutes from "./addon.route";
+import masterRoutes from "./master.route";
+import integrationRoutes from "./integration.route";
 
 const router = Router();
+
+// Master immediate build (shell, org lifecycle, riders, rider pay, commission, orders, dispatch, finance, audit)
+router.use("/", masterRoutes);
+router.use("/", integrationRoutes);
 
 // Organization locations route
 router.use("/organizations/:org_id/locations", locationRoutes);

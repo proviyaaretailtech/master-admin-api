@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createLocationSchema } from "./location.validator";
 
 // Phone number regex supporting international and standard formats: +1 (555) 019-2834, +91 9876543210, etc.
 const PHONE_REGEX = /^\+?[0-9\s\-().]{7,25}$/;
@@ -35,6 +36,17 @@ export const createOrganizationSchema = z.object({
       }),
     })
     .default("Draft"),
+  // Master immediate build: guided create flow (plan, owner invite, extra locations, ordering switch)
+  plan_code: z.string().trim().min(1).max(60).optional(),
+  owner_email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email("Please provide a valid owner email address")
+    .max(255)
+    .optional(),
+  locations: z.array(createLocationSchema).max(25, "At most 25 locations can be created at once").optional(),
+  ordering_open: z.boolean().optional(),
 });
 
 export const updateOrganizationSchema = z

@@ -7,6 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import app from "../index";
 import { createStaff, cleanup } from "./helpers/testkit";
+import { MASTER_ROUTES } from "./helpers/master-routes";
 
 const ID = "00000000-0000-0000-0000-000000000001";
 const ID2 = "00000000-0000-0000-0000-000000000002";
@@ -63,7 +64,8 @@ describe("route guards", () => {
     // the app also registers "/" (info banner), counted separately from the /api routes
     const router = (app as unknown as { _router: { stack: unknown[] } })._router.stack;
     const total = countRoutes(router);
-    expect(total).toBe(1 + PUBLIC.length + PROFILE.length + GUARDED.length);
+    // MASTER_ROUTES (helpers/master-routes.ts) lists the Master immediate-build endpoints; master-guards.test.ts checks their guards
+    expect(total).toBe(1 + PUBLIC.length + PROFILE.length + GUARDED.length + MASTER_ROUTES.length);
   });
 
   it.each(GUARDED)("%s %s rejects an unauthenticated caller (401)", async (method, path) => {

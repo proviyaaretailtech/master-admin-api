@@ -1,6 +1,5 @@
 import { Router } from "express";
 import {
-  createOrganizationController,
   getOrganizationsController,
   getOrganizationByIdController,
   updateOrganizationController,
@@ -10,7 +9,6 @@ import { requireAuth } from "../middlewares/auth.middleware";
 import {
   requirePermission,
   requireAnyPermission,
-  requireOrganizationCreatePermission,
   requireOrganizationUpdatePermission,
 } from "../middlewares/permission.middleware";
 
@@ -19,7 +17,7 @@ const organizationRoutes = Router();
 // Protect all organization CRUD routes with JWT authentication
 organizationRoutes.use(requireAuth);
 
-organizationRoutes.post("/", requireOrganizationCreatePermission, createOrganizationController);
+// POST / (create) lives in master.route.ts: it extends creation with plan, owner invite, locations and the ordering switch.
 
 organizationRoutes.get(
   "/",
