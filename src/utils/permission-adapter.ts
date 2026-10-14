@@ -45,6 +45,12 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
     accessLevel: "full",
     actions: [
       {
+        key: "view_applications",
+        label: "View Partner Applications",
+        description: "See partner sign-ups from the website and every field they submitted",
+        enabled: true,
+      },
+      {
         key: "approve_partner",
         label: "Approve Partner",
         description: "Authorize and approve onboarding application",
@@ -530,13 +536,19 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
     name: "Orders & Order 360",
     category: "operations",
     pagePath: "/orders",
-    description: "Read-only order search and order trace across organizations.",
+    description: "Order search and order trace across organizations, and the review queue of held orders.",
     accessLevel: "full",
     actions: [
       {
         key: "view_orders",
         label: "View Orders",
-        description: "Search orders and open the order trace",
+        description: "Search orders, open the order trace and see orders held for review",
+        enabled: true,
+      },
+      {
+        key: "decide_order_holds",
+        label: "Release or Reject Held Orders",
+        description: "Send a held order to its restaurant or cancel and refund it",
         enabled: true,
       },
     ],

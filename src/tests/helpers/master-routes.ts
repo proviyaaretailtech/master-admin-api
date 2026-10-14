@@ -62,6 +62,16 @@ export const MASTER_ROUTES: MRoute[] = [
   // orders
   g("/api/orders", "feat_orders", "view_orders"),
   g(`/api/orders/${ID}`, "feat_orders", "view_orders"),
+  // partner applications
+  g("/api/partner-applications", "feat_partner_review", "view_applications"),
+  g(`/api/partner-applications/${ID}`, "feat_partner_review", "view_applications"),
+  w("post", `/api/partner-applications/${ID}/approve`, "feat_partner_review", "approve_partner"),
+  w("post", `/api/partner-applications/${ID}/reject`, "feat_partner_review", "reject_partner"),
+  // order holds
+  g("/api/order-holds", "feat_orders", "view_orders"),
+  g(`/api/order-holds/${ID}`, "feat_orders", "view_orders"),
+  w("post", `/api/order-holds/${ID}/release`, "feat_orders", "decide_order_holds"),
+  w("post", `/api/order-holds/${ID}/reject`, "feat_orders", "decide_order_holds"),
   // dispatch
   g("/api/dispatch/jobs", "feat_dispatch", "view_dispatch"),
   g(`/api/dispatch/jobs/${ID}`, "feat_dispatch", "view_dispatch"),

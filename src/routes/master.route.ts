@@ -16,6 +16,9 @@ import { dispatchService } from "../services/master/dispatch.service";
 import { financeService } from "../services/master/finance.service";
 import { orgService } from "../services/master/org.service";
 import { peopleService } from "../services/master/people.service";
+import { partnerApplicationService } from "../services/master/partner-application.service";
+import { orderHoldService } from "../services/master/order-hold.service";
+import * as review from "../validators/master-review.validator";
 import { createOrganizationSchema } from "../validators/organization.validator";
 
 /**
@@ -248,6 +251,48 @@ r.get("/finance/reconciliation", can("feat_finance", "view_finance"), wrap(async
 r.get("/finance/rider-earnings", can("feat_finance", "view_finance"), wrap(async (req, res) => {
   res.status(OK).json({ message: "Rider earnings fetched successfully", ...(await readService.riderEarnings(ops.riderEarningsQuery.parse(req.query))) });
 }));
+
+// ---------------------------------------------------- partner applications
+// Sign-ups from the partner website (ol_partner_applications). Approve creates the organisation (0342).
+r.get("/partner-applications", can("feat_partner_review", "view_applications"), wrap(async (req, res) => {
+  res.status(OK).json({ message: "Partner applications fetched successfully", ...(await partnerApplicationService.list(review.applicationsQuery.parse(req.query))) });
+}));
+r.get("/partner-applications/:id", can("feat_partner_review", "view_applications"), wrap(async (req, res) => {
+  const { id } = idParams.parse(req.params);
+  res.status(OK).json({ message: "Partner application fetched successfully", ...(await partnerApplicationService.get(id)) });
+}));
+r.post("/partner-applications/:id/approve", canWrite("feat_partner_review", "approve_partner"), wrap(async (req, res, actor) => {
+  const { id } = idParams.parse(req.params);
+  const { reason } = review.approveApplicationBody.parse(req.body ?? {});
+  const result = await partnerApplicationService.decide(actor, id, "approve", reason);
+  res.status(OK).json({ message: result.replayed ? "Partner application was already approved" : "Partner application approved", result });
+}));
+r.post("/partner-applications/:id/reject", canWrite("feat_partner_review", "reject_partner"), wrap(async (req, res, actor) => {
+  const { id } = idParams.parse(req.params);
+  const { reason } = review.rejectApplicationBody.parse(req.body ?? {});
+  const result = await partnerApplicationService.decide(actor, id, "reject", reason);
+  res.status(OK).json({ message: result.replayed ? "Partner application was already rejected" : "Partner application rejected", result });
+}));
+
+// ------------------------------------------------------------ order holds
+// Orders held for review (ol_order_holds). Decisions go through One Local, which sends the order on or refunds it.
+r.get("/order-holds", can("feat_orders", "view_orders"), wrap(async (req, res) => {
+  res.status(OK).json({ message: "Order holds fetched successfully", ...(await orderHoldService.list(review.holdsQuery.parse(req.query))) });
+}));
+r.get("/order-holds/:id", can("feat_orders", "view_orders"), wrap(async (req, res) => {
+  const { id } = idParams.parse(req.params);
+  res.status(OK).json({ message: "Order hold fetched successfully", ...(await orderHoldService.get(id)) });
+}));
+for (const [verb, msg] of [
+  ["release", "Order released to the restaurant"],
+  ["reject", "Order rejected and cancelled"],
+] as const) {
+  r.post(`/order-holds/:id/${verb}`, canWrite("feat_orders", "decide_order_holds"), wrap(async (req, res, actor) => {
+    const { id } = idParams.parse(req.params);
+    const { reason } = review.holdDecisionBody.parse(req.body ?? {});
+    res.status(OK).json({ message: msg, result: await orderHoldService.decide(actor, req.token ?? "", id, verb, reason) });
+  }));
+}
 
 // ------------------------------------------------------------------ audit
 r.get("/audit-logs", can("feat_audit_compliance", "view_audit_logs"), wrap(async (req, res) => {
