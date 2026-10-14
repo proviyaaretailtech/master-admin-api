@@ -17,6 +17,9 @@ const PUBLIC: Route[] = [
   ["get", "/api/health"],
   ["post", "/api/auth/login"],
   ["post", "/api/auth/logout"],
+  ["post", "/api/auth/refresh"], // needs the httpOnly refresh cookie (auth-session.test.ts)
+  ["post", "/api/auth/forgot-password"],
+  ["post", "/api/auth/reset-password"], // needs a recovery token from the emailed link
 ];
 const PROFILE: Route[] = [["get", "/api/auth/me"]]; // any signed-in staff member (no feature permission)
 const GUARDED: Route[] = [

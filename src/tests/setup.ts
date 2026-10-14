@@ -24,8 +24,33 @@ vi.mock("../config/supabase.config", () => {
       const { query } = await import("../config/database.config");
       const r = await query<{ id: string }>("SELECT id FROM auth.users WHERE lower(email) = lower($1) LIMIT 1;", [email]);
       return r.rows[0] && password === "test-password-123"
-        ? { data: { session: { access_token: `test:${r.rows[0].id}` }, user: { id: r.rows[0].id } }, error: null }
+        ? {
+            data: {
+              session: { access_token: `test:${r.rows[0].id}`, refresh_token: `rt:${r.rows[0].id}:0`, expires_at: 4102444800 },
+              user: { id: r.rows[0].id },
+            },
+            error: null,
+          }
         : { data: { session: null, user: null }, error: { message: "Invalid login credentials" } };
+    },
+    // Refresh token "rt:<auth user id>:<n>" rotates to "rt:<id>:<n+1>"; anything else is refused.
+    refreshSession: async ({ refresh_token }: { refresh_token: string }) => {
+      const m = /^rt:([0-9a-f-]{36}):(\d+)$/.exec(refresh_token ?? "");
+      return m
+        ? {
+            data: {
+              session: { access_token: `test:${m[1]}`, refresh_token: `rt:${m[1]}:${Number(m[2]) + 1}`, expires_at: 4102444800 },
+              user: { id: m[1] },
+            },
+            error: null,
+          }
+        : { data: { session: null, user: null }, error: { message: "Invalid Refresh Token" } };
+    },
+    // Records password-reset emails instead of sending them.
+    resetPasswordForEmail: async (email: string, opts?: { redirectTo?: string }) => {
+      const g = globalThis as unknown as { __recoverCalls?: Array<{ email: string; redirectTo?: string }> };
+      (g.__recoverCalls ??= []).push({ email, redirectTo: opts?.redirectTo });
+      return { data: {}, error: null };
     },
     admin: {
       // Records revoked sessions so tests can assert that logout revokes the session.

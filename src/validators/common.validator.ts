@@ -32,3 +32,14 @@ export const boundedInt = (min: number, max: number, label: string) =>
 /** A short list of trimmed, bounded strings (module keys, plan names, ...). */
 export const stringList = (maxItems: number, maxLength: number) =>
   z.array(z.string().trim().min(1).max(maxLength)).max(maxItems);
+
+/**
+ * Password strength for platform staff accounts. One rule everywhere a password is set in Master Admin
+ * (creating a staff account, resetting a forgotten password).
+ */
+export const PASSWORD_MIN_LENGTH = 10;
+export const PASSWORD_MAX_LENGTH = 128;
+export const passwordSchema = z
+  .string()
+  .min(PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters long`)
+  .max(PASSWORD_MAX_LENGTH, `Password must be at most ${PASSWORD_MAX_LENGTH} characters long`);

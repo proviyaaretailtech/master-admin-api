@@ -105,3 +105,60 @@ export function isCorsOriginAllowed(
   }
   return false;
 }
+
+/**
+ * Rate limiter for the session-refresh endpoint. A signed-in tab refreshes about once an hour (plus a
+ * retry when a request comes back 401), so the ceiling is generous; it only stops a refresh-token
+ * guessing loop from one address.
+ */
+export const refreshRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    status: 429,
+    error: "TooManyRequestsException",
+    message: "Too many session refresh attempts. Please try again after 15 minutes.",
+  },
+});
+
+/**
+ * Rate limiters for "forgot password" (each request can send an email, so the ceiling is low) and for
+ * "set a new password" (a few retries for a rejected password). Per IP, 15 minutes. Supabase applies its
+ * own per-address email limit on top.
+ */
+const passwordLimiter = (max: number) =>
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      status: 429,
+      error: "TooManyRequestsException",
+      message: "Too many password reset attempts. Please try again after 15 minutes.",
+    },
+  });
+export const forgotPasswordRateLimiter = passwordLimiter(5);
+export const resetPasswordRateLimiter = passwordLimiter(10);
+
+/**
+ * The Master Admin web origin that emailed links (password reset) point back to. Taken from the
+ * configured CLIENT_ORIGIN list only, never from a request header on its own: the caller's Origin is used
+ * when it is exactly one of the allowed origins (so the link opens on the site the admin is using), else
+ * the first configured CLIENT_ORIGIN entry.
+ */
+export function resolveFrontendOrigin(
+  requestOrigin: string | undefined,
+  clientOrigin: string = Env.CLIENT_ORIGIN,
+  allowed: string[] = allowedCorsOrigins
+): string {
+  const origin = requestOrigin?.replace(/\/+$/, "");
+  if (origin && allowed.includes(origin)) return origin;
+  const configured = clientOrigin
+    .split(",")
+    .map((o) => o.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+  return configured[0] ?? allowed[0];
+}
