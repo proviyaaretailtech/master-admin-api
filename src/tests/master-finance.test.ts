@@ -3,9 +3,10 @@ import request from "supertest";
 import app from "../index";
 import { query } from "../config/database.config";
 import { createStaff, createOrg, cleanup, TestStaff } from "./helpers/testkit";
-import { staffWith, bearer, seedOrder, seedRider, tag } from "./helpers/master-kit";
+import { staffWith, bearer, seedOrder, seedRider, seedDeliveredOneLocalOrder, tag } from "./helpers/master-kit";
 
 const today = () => new Date().toISOString().slice(0, 10);
+const dayFrom = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
 
 describe("Master: finance control", () => {
   const staffIds: string[] = [];
@@ -62,22 +63,46 @@ describe("Master: finance control", () => {
     let settlementId: string;
     let payoutId: string;
 
+    // Since 0340 a settlement pays One Local orders only (never the restaurant's own POS sales). Settlement weeks use the Indian date,
+    // so the period spans yesterday..tomorrow (UTC) to hold "now" whatever the hour.
+    const period = { period_start: dayFrom(-1), period_end: dayFrom(1) };
     beforeAll(async () => {
-      await seedOrder(org, { status: "paid", total: 300 });
-      await query("UPDATE orders SET paid_at = now() WHERE organization_id = $1;", [org]).catch(() => undefined);
+      // Rs 300 food + Rs 15 GST + Rs 20 delivery = Rs 335, delivered. The restaurant's own dine-in sale must NOT be paid out.
+      await seedDeliveredOneLocalOrder(org, { food: 300, gst: 15, fee: 20 });
+      await seedOrder(org, { status: "paid", total: 999 });
+    });
+
+    it("refuses a period with no One Local order (400 finance_empty_period) and writes nothing", async () => {
+      const res = await request(app).post("/api/finance/settlements/run").set(bearer(fin)).send({ organization_id: org, period_start: dayFrom(-30), period_end: dayFrom(-24) });
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe("finance_empty_period");
+      expect((await query("SELECT 1 FROM settlements WHERE organization_id = $1;", [org])).rows).toHaveLength(0);
     });
 
     it("runs a settlement for the period (201, draft, minor units + currency), attributed to a non-super finance user", async () => {
-      const res = await request(app).post("/api/finance/settlements/run").set(bearer(fin)).send({ organization_id: org, period_start: today(), period_end: today() });
+      const res = await request(app).post("/api/finance/settlements/run").set(bearer(fin)).send({ organization_id: org, ...period });
       expect(res.status).toBe(201);
       settlementId = res.body.settlement.id;
       expect(res.body.settlement).toMatchObject({ status: "draft", currency_code: "INR", organization_id: org });
-      expect(res.body.settlement.gross_minor).toBe(30000);
+      // the One Local order only: dues 30000 - commission 15% 4500 - GST 18% on commission 810 = 24690; delivery fee 2000 stays with One Local
+      expect(res.body.settlement).toMatchObject({
+        gross_minor: 33500,
+        food_due_minor: 30000,
+        clawback_minor: 0,
+        commission_minor: 4500,
+        commission_gst_minor: 810,
+        debt_in_minor: 0,
+        debt_out_minor: 0,
+        delivery_fee_minor: 2000,
+        net_minor: 24690,
+      });
+      const s = res.body.settlement;
+      expect(s.food_due_minor - s.clawback_minor - s.commission_minor - s.commission_gst_minor - s.debt_in_minor).toBe(s.net_minor - s.debt_out_minor);
       const audit = await query("SELECT actor_user_id FROM audit_logs WHERE action = 'master.settlement_run' AND entity_id = $1;", [settlementId]);
       expect(audit.rows[0].actor_user_id).toBe(fin.id);
     });
     it("a second run for the same period is refused (409 finance_exists)", async () => {
-      const res = await request(app).post("/api/finance/settlements/run").set(bearer(sa)).send({ organization_id: org, period_start: today(), period_end: today() });
+      const res = await request(app).post("/api/finance/settlements/run").set(bearer(sa)).send({ organization_id: org, ...period });
       expect(res.status).toBe(409);
       expect(res.body.errorCode).toBe("finance_exists");
     });
@@ -93,6 +118,10 @@ describe("Master: finance control", () => {
       expect(res.status).toBe(200);
       expect(res.body.settlements.map((s: { id: string }) => s.id)).toContain(settlementId);
       expect(res.body.settlements[0]).toMatchObject({ currency_code: "INR", organization_name: expect.any(String) });
+      // the list carries every line of the payout sum, so the screen can show how the net is reached
+      expect(res.body.settlements.find((x: { id: string }) => x.id === settlementId)).toMatchObject({
+        food_due_minor: 30000, clawback_minor: 0, commission_minor: 4500, commission_gst_minor: 810, debt_in_minor: 0, debt_out_minor: 0, delivery_fee_minor: 2000, net_minor: 24690,
+      });
       expect((await request(app).get("/api/finance/settlements").query({ status: "nope" }).set(bearer(viewer))).status).toBe(400);
     });
     it("approves the settlement (creates the merchant payout) and a repeat is 409", async () => {
@@ -109,7 +138,7 @@ describe("Master: finance control", () => {
     it("lists payouts by status with money in minor units", async () => {
       const res = await request(app).get("/api/finance/payouts").query({ org, status: "pending", payee_type: "merchant" }).set(bearer(viewer));
       expect(res.status).toBe(200);
-      expect(res.body.payouts[0]).toMatchObject({ id: payoutId, amount_minor: 30000, currency_code: "INR", status: "pending", payee_type: "merchant" });
+      expect(res.body.payouts[0]).toMatchObject({ id: payoutId, amount_minor: 24690, currency_code: "INR", status: "pending", payee_type: "merchant" });
       expect((await request(app).get("/api/finance/payouts").query({ payee_type: "alien" }).set(bearer(viewer))).status).toBe(400);
     });
     it("mark-paid before approval is 409; approve works once; mark-paid needs a reference then completes the settlement", async () => {

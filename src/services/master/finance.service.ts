@@ -12,6 +12,13 @@ async function payoutOr404(id: string): Promise<Row> {
 const PAYOUT_COLS = `id, organization_id, payee_type, payee_id, settlement_id, amount_minor, currency_code, status, reference, created_at, updated_at`;
 
 /**
+ * Every line of the payout sum (0339/0340): net = food_due - clawback - commission - commission_gst - debt_in, never below 0;
+ * a shortfall is debt_out (brought into the next settlement). delivery_fee is what customers paid for delivery: One Local keeps it.
+ */
+export const SETTLEMENT_COLS = `id, organization_id, period_start, period_end, status, currency_code, gross_minor, food_due_minor, clawback_minor, commission_minor,
+  commission_gst_minor, commission_gst_bps, debt_in_minor, debt_out_minor, net_minor, delivery_fee_minor, tax_minor, reversal_minor, carry_in_minor, carry_out_minor, created_at`;
+
+/**
  * finance_run_settlement / finance_approve_settlement (0119) accept a signed-in caller only when they are a
  * super admin, or a server context (no JWT subject). A super admin is attributed through the JWT subject; any other
  * staff member holding the finance permission runs in server context and is attributed by an explicit audit row
@@ -33,11 +40,7 @@ export const financeService = {
     if (!actor.isSuperAdmin) {
       await recordAudit(actor, "master.settlement_run", "settlements", r.rows[0].id as string, b.organization_id, { period_start: b.period_start, period_end: b.period_end });
     }
-    const s = await query<Row>(
-      `SELECT id, organization_id, period_start, period_end, status, currency_code, gross_minor, commission_minor, tax_minor, net_minor, reversal_minor, carry_in_minor, carry_out_minor, created_at
-         FROM settlements WHERE id = $1;`,
-      [r.rows[0].id]
-    );
+    const s = await query<Row>(`SELECT ${SETTLEMENT_COLS} FROM settlements WHERE id = $1;`, [r.rows[0].id]);
     return s.rows[0];
   },
 
@@ -48,7 +51,7 @@ export const financeService = {
     if (!actor.isSuperAdmin) {
       await recordAudit(actor, "master.settlement_approved", "settlements", id, null, { payout_id: r.rows[0].payout_id });
     }
-    const s = await query<Row>(`SELECT id, organization_id, period_start, period_end, status, currency_code, gross_minor, commission_minor, net_minor FROM settlements WHERE id = $1;`, [id]);
+    const s = await query<Row>(`SELECT ${SETTLEMENT_COLS} FROM settlements WHERE id = $1;`, [id]);
     return { settlement: s.rows[0], payout_id: r.rows[0].payout_id };
   },
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { query } from "../../config/database.config";
+import { query, txAs } from "../../config/database.config";
 import { ensureRole, createStaff, permString, TestStaff } from "./testkit";
 
 let n = 0;
@@ -55,6 +55,34 @@ export async function seedOrder(org: string, o: { status?: string; total?: numbe
     [org, ++orderNo + Math.floor(Math.random() * 1000), `MK-${tag()}`.slice(0, 24), o.status ?? "new", o.channel ?? "dine_in", total]
   );
   return r.rows[0].id;
+}
+
+/**
+ * A delivered One Local order: the customer order (ol_orders) and the restaurant's POS order it points at. Delivered through the
+ * status gate (never a direct status write), so the database accrues the commission and the restaurant due as in production.
+ * Amounts in rupees; the bill is food + GST + delivery fee.
+ */
+export async function seedDeliveredOneLocalOrder(org: string, o: { food: number; gst?: number; fee?: number }): Promise<{ orderId: string; olOrderId: string }> {
+  const gst = o.gst ?? 0;
+  const fee = o.fee ?? 0;
+  const total = o.food + gst + fee;
+  const olId = randomUUID();
+  const pos = await query<{ id: string }>(
+    `INSERT INTO orders (organization_id, order_no, display_no, status, channel, subtotal, gst_amount, total, placed_by, external_ref)
+     VALUES ($1, $2, $3, 'new', 'online', $4, $5, $6, 'integration', $7) RETURNING id;`,
+    [org, ++orderNo + Math.floor(Math.random() * 1000), `OL-${tag()}`.slice(0, 24), o.food, gst, total, `onelocal:${olId}`]
+  );
+  const orderId = pos.rows[0].id;
+  await query(
+    `INSERT INTO ol_orders (id, customer_hash, items, subtotal, gst, delivery_fee, total, payment_method, payment_status, status, pos_order_id, organization_id, razorpay_payment_id)
+     VALUES ($1, $2, '[]'::jsonb, $3, $4, $5, $6, 'upi', 'paid', 'delivered', $7, $8, $9);`,
+    [olId, `h${tag()}`, o.food, gst, fee, total, orderId, org, `pay_mk_${tag()}`]
+  );
+  await txAs(null, async (c) => {
+    await c.query("SELECT public.status_gate('orders', $1::uuid, 'set_delivered');", [orderId]);
+    await c.query("UPDATE orders SET status = 'delivered', paid_at = now() WHERE id = $1;", [orderId]);
+  });
+  return { orderId, olOrderId: olId };
 }
 
 /** A consumer order plus its delivery job (open by default). */

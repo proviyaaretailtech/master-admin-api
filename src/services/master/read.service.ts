@@ -215,8 +215,9 @@ export const readService = {
     const w = new Where().add("s.organization_id = $?", f.org).add("s.status = $?", f.status);
     const total = (await query<{ n: number }>(`SELECT count(*)::int AS n FROM settlements s ${w.sql};`, w.values)).rows[0].n;
     const r = await query<Row>(
-      `SELECT s.id, s.organization_id, g.name AS organization_name, s.period_start, s.period_end, s.status, s.currency_code, s.gross_minor, s.commission_minor,
-              s.tax_minor, s.net_minor, s.reversal_minor, s.carry_in_minor, s.carry_out_minor, s.created_at, s.updated_at,
+      `SELECT s.id, s.organization_id, g.name AS organization_name, s.period_start, s.period_end, s.status, s.currency_code, s.gross_minor,
+              s.food_due_minor, s.clawback_minor, s.commission_minor, s.commission_gst_minor, s.commission_gst_bps, s.debt_in_minor, s.debt_out_minor,
+              s.net_minor, s.delivery_fee_minor, s.tax_minor, s.reversal_minor, s.carry_in_minor, s.carry_out_minor, s.created_at, s.updated_at,
               (SELECT count(*)::int FROM payouts p WHERE p.settlement_id = s.id) AS payouts_count
          FROM settlements s JOIN organizations g ON g.id = s.organization_id
          ${w.sql} ORDER BY s.created_at DESC, s.id ${page(f.page, f.limit)};`,
