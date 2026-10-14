@@ -721,6 +721,19 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
   },
 ];
 
+/**
+ * The grantable permission catalogue: every feature and action the backend knows, all switched off. The
+ * role editor builds its matrix from this (GET /roles/catalog) instead of keeping its own copy, so a
+ * feature added here is grantable in the UI without a frontend change.
+ */
+export function blankPermissionCatalogue(): FeaturePermission[] {
+  return DEFAULT_FEATURES_TEMPLATE.map((f) => ({
+    ...f,
+    accessLevel: "none" as const,
+    actions: f.actions.map((a) => ({ ...a, enabled: false })),
+  }));
+}
+
 const DELIMITERS = /[:$]/;
 
 /**

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getRolesController,
+  getPermissionCatalogController,
   getRoleByIdController,
   createRoleController,
   updateRoleController,
@@ -18,6 +19,13 @@ roleRoutes.get(
   "/",
   requirePermission("feat_roles_templates", "view_roles", "read_only"),
   getRolesController
+);
+
+// Registered before "/:id" so "catalog" is not taken for a role id.
+roleRoutes.get(
+  "/catalog",
+  requirePermission("feat_roles_templates", "view_roles", "read_only"),
+  getPermissionCatalogController
 );
 
 roleRoutes.get(

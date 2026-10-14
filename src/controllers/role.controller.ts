@@ -9,6 +9,18 @@ import {
 } from "../validators/role.validator";
 import { HTTPSTATUS } from "../config/http.config";
 import { toActor } from "../utils/authz";
+import { blankPermissionCatalogue } from "../utils/permission-adapter";
+
+/**
+ * GET /api/roles/catalog
+ * Every feature and action a role can be granted (the backend permission registry), all off.
+ */
+export const getPermissionCatalogController = asyncHandler(async (_req: Request, res: Response) => {
+  res.status(HTTPSTATUS.OK).json({
+    message: "Permission catalogue fetched successfully",
+    features: blankPermissionCatalogue(),
+  });
+});
 
 /**
  * GET /api/roles
