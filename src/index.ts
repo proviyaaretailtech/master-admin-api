@@ -10,6 +10,7 @@ import {
 import { errorHandler } from "./middlewares/errorHandler.middleware";
 import { ForbiddenException, NotFoundException } from "./utils/app-error";
 import apiRoutes from "./routes";
+import { requireInternalKey } from "./middlewares/internal-key.middleware";
 
 const app = express();
 
@@ -21,6 +22,10 @@ app.disable("x-powered-by");
 
 // 1. Security HTTP Headers
 app.use(helmetSecurityMiddleware);
+
+// 1b. Only our own servers may call the Master server: each sends its own key (x-internal-key).
+// Browsers never reach this server; they go through their app's server. Liveness stays open.
+app.use(requireInternalKey({ openPaths: [`${Env.BASE_PATH.replace(/\/+$/, "")}/health`] }));
 
 // 2. Global Rate Limiter
 app.use(globalRateLimiter);

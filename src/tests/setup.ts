@@ -4,13 +4,41 @@
  * auth service or its users. A test token is "test:<auth user id>".
  */
 import { vi } from "vitest";
+import { TEST_INTERNAL_KEYS } from "./helpers/internal-keys";
+
+// Every request to the Master server must carry one of our servers' keys. Tests act as the Master Admin
+// panel's proxy by default: each supertest request gets the admin-web key (a test can .set() another
+// key or .unset("x-internal-key") to check the gate).
+process.env.INTERNAL_KEY_ADMIN_WEB = TEST_INTERNAL_KEYS["admin-web"];
+process.env.INTERNAL_KEY_CUSTOMER = TEST_INTERNAL_KEYS.customer;
+process.env.INTERNAL_KEY_PARTNER = TEST_INTERNAL_KEYS.partner;
+process.env.INTERNAL_KEY_RIDER = TEST_INTERNAL_KEYS.rider;
+process.env.INTERNAL_KEY_POS = TEST_INTERNAL_KEYS.pos;
+
+vi.mock("supertest", async () => {
+  const actual = await vi.importActual<Record<string, unknown>>("supertest");
+  const { TEST_INTERNAL_KEYS: keys } = await import("./helpers/internal-keys");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const real = (actual.default ?? actual) as any;
+  const methods = ["get", "post", "put", "patch", "delete", "del", "head", "options"];
+  const withKey = (app: unknown) => {
+    const agent = real(app);
+    for (const method of methods) {
+      const orig = agent[method]?.bind(agent);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (orig) agent[method] = (...args: any[]) => orig(...args).set("x-internal-key", keys["admin-web"]);
+    }
+    return agent;
+  };
+  return { ...actual, default: Object.assign(withKey, real) };
+});
 
 const url = process.env.DATABASE_URL || "";
 const m = url.match(/^postgres(?:ql)?:\/\/[^@]*@(127\.0\.0\.1|localhost)(?::\d+)?\/([A-Za-z0-9_]+)(?:\?.*)?$/);
 if (!m || !m[2].endsWith("_test")) {
   throw new Error(
     "Refusing to run tests: DATABASE_URL must point at a LOCAL database whose name ends in _test " +
-      "(build one with ../../database/make_testdb.sh). Got: " + url.replace(/:\/\/.*@/, "://***@")
+      "(build one with ../database/make_testdb.sh). Got: " + url.replace(/:\/\/.*@/, "://***@")
   );
 }
 

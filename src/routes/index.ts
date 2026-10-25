@@ -11,8 +11,16 @@ import packRoutes from "./pack.route";
 import addonRoutes from "./addon.route";
 import masterRoutes from "./master.route";
 import integrationRoutes from "./integration.route";
+import internalRoutes from "./internal.route";
+import { allowCallers } from "../middlewares/internal-key.middleware";
 
 const router = Router();
+
+// Server-to-server API (customer / partner / rider / POS servers). Mounted before the staff routes,
+// which accept only the Master Admin panel's own proxy.
+router.use("/internal", internalRoutes);
+router.use("/health", healthRoutes);
+router.use(allowCallers("admin-web"));
 
 // Master immediate build (shell, org lifecycle, riders, rider pay, commission, orders, dispatch, finance, audit)
 router.use("/", masterRoutes);
@@ -21,7 +29,6 @@ router.use("/", integrationRoutes);
 // Organization locations route
 router.use("/organizations/:org_id/locations", locationRoutes);
 
-router.use("/health", healthRoutes);
 router.use("/auth", authRoutes);
 router.use("/users", userRoutes);
 router.use("/organizations", organizationRoutes);

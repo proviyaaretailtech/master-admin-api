@@ -63,6 +63,8 @@ declare global {
       permissions?: FeaturePermission[];
       userRole?: any;
       isSuperAdmin?: boolean;
+      /** Which of our servers made this request (set by the internal-key middleware). */
+      internalCaller?: import("../config/internal-keys.config").InternalCaller;
     }
   }
 }

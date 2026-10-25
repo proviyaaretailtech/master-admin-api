@@ -21,6 +21,8 @@ const PUBLIC: Route[] = [
   ["post", "/api/auth/forgot-password"],
   ["post", "/api/auth/reset-password"], // needs a recovery token from the emailed link
 ];
+// Server-to-server routes: guarded by the per-server internal key (internal-key.test.ts), not staff sign-in.
+const INTERNAL: Route[] = [["get", "/api/internal/whoami"]];
 const PROFILE: Route[] = [["get", "/api/auth/me"]]; // any signed-in staff member (no feature permission)
 const GUARDED: Route[] = [
   ["get", "/api/users"], ["post", "/api/users"], ["get", `/api/users/${ID}`], ["put", `/api/users/${ID}`], ["delete", `/api/users/${ID}`],
@@ -68,7 +70,7 @@ describe("route guards", () => {
     const router = (app as unknown as { _router: { stack: unknown[] } })._router.stack;
     const total = countRoutes(router);
     // MASTER_ROUTES (helpers/master-routes.ts) lists the Master immediate-build endpoints; master-guards.test.ts checks their guards
-    expect(total).toBe(1 + PUBLIC.length + PROFILE.length + GUARDED.length + MASTER_ROUTES.length);
+    expect(total).toBe(1 + PUBLIC.length + INTERNAL.length + PROFILE.length + GUARDED.length + MASTER_ROUTES.length);
   });
 
   it.each(GUARDED)("%s %s rejects an unauthenticated caller (401)", async (method, path) => {

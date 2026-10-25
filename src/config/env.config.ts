@@ -9,6 +9,7 @@ if (process.env.NODE_ENV !== "production") {
 }
 import { getEnv } from "../utils/get-env";
 import { resolveNodeEnv, missingProductionSettings } from "./boot-guard";
+import { INTERNAL_KEY_ENV, internalKeysFromEnv } from "./internal-keys.config";
 
 const NODE_ENV = resolveNodeEnv(process.env.NODE_ENV);
 
@@ -40,5 +41,9 @@ if (Env.NODE_ENV === "production") {
   const missing = missingProductionSettings(Env, process.env);
   if (missing.length > 0) {
     throw new Error(`Refusing to start in production without: ${missing.join(", ")}`);
+  }
+  // Without the panel's key nobody could use the Master server at all; refuse rather than run locked.
+  if (!internalKeysFromEnv(process.env).some((k) => k.caller === "admin-web")) {
+    throw new Error(`Refusing to start in production without: ${INTERNAL_KEY_ENV["admin-web"]} (32+ characters)`);
   }
 }
