@@ -766,6 +766,34 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
     ],
   },
   {
+    id: "feat_role_sets",
+    name: "Role Sets and Test Logins",
+    category: "access_control",
+    pagePath: "/access-control/role-sets",
+    description: "Decide which staff roles each kind of store may use, apply them to a business, and make test logins.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_role_sets",
+        label: "View Role Sets",
+        description: "See the roles approved for each store type and the roles a business holds",
+        enabled: true,
+      },
+      {
+        key: "manage_role_sets",
+        label: "Manage Role Sets",
+        description: "Add or remove roles in a store type's set and apply the set to a business",
+        enabled: true,
+      },
+      {
+        key: "create_test_login",
+        label: "Create Test Logins",
+        description: "Create a test ID and password for a business (never in production; super admin only)",
+        enabled: true,
+      },
+    ],
+  },
+  {
     id: "feat_support",
     name: "Support",
     category: "operations",

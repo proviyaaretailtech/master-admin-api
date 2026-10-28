@@ -19,6 +19,7 @@ import { peopleService } from "../services/master/people.service";
 import { partnerApplicationService } from "../services/master/partner-application.service";
 import { customerService } from "../services/master/customer.service";
 import { supportService } from "../services/master/support.service";
+import { orgRolesService } from "../services/master/org-roles.service";
 import { orderHoldService } from "../services/master/order-hold.service";
 import { pipelineService } from "../services/master/pipeline.service";
 import * as review from "../validators/master-review.validator";
@@ -287,6 +288,35 @@ r.get("/customers", can("feat_customers", "view_customers"), wrap(async (req, re
     summary: await customerService.summary(),
     ...(await customerService.list({ q: f.q, test, page: f.page, limit: f.limit })),
   });
+}));
+
+// ------------------------------------------------- role sets and test logins
+// Which staff roles each store type may use: decided by the founder here, empty until then (0632).
+r.get("/role-sets", can("feat_role_sets", "view_role_sets"), wrap(async (_req, res) => {
+  res.status(OK).json({ message: "Role sets fetched successfully", ...(await orgRolesService.roleSets()) });
+}));
+r.put("/role-sets/:storeType/:role", canWrite("feat_role_sets", "manage_role_sets"), wrap(async (req, res, actor) => {
+  const { storeType, role } = review.roleSetParams.parse(req.params);
+  res.status(OK).json({ message: "Role added to the set", result: await orgRolesService.changeSet(actor, storeType, role, true) });
+}));
+r.delete("/role-sets/:storeType/:role", canWrite("feat_role_sets", "manage_role_sets"), wrap(async (req, res, actor) => {
+  const { storeType, role } = review.roleSetParams.parse(req.params);
+  res.status(OK).json({ message: "Role removed from the set", result: await orgRolesService.changeSet(actor, storeType, role, false) });
+}));
+r.get("/organizations/:id/staff-roles", can("feat_role_sets", "view_role_sets"), wrap(async (req, res) => {
+  const { id } = review.orgParams.parse(req.params);
+  res.status(OK).json({ message: "Organisation roles fetched successfully", ...(await orgRolesService.forOrganization(id)) });
+}));
+r.post("/organizations/:id/staff-roles/apply", canWrite("feat_role_sets", "manage_role_sets"), wrap(async (req, res, actor) => {
+  const { id } = review.orgParams.parse(req.params);
+  const { store_type } = review.applyRoleSetBody.parse(req.body ?? {});
+  res.status(OK).json({ message: "Approved roles applied", result: await orgRolesService.applySet(actor, id, store_type) });
+}));
+// Local and staging only; the password is shown once and never stored by Master (0633).
+r.post("/organizations/:id/test-login", canWrite("feat_role_sets", "create_test_login"), wrap(async (req, res, actor) => {
+  const { id } = review.orgParams.parse(req.params);
+  const { role } = review.testLoginBody.parse(req.body ?? {});
+  res.status(OK).json({ message: "Test login created", result: await orgRolesService.createTestLogin(actor, id, role) });
 }));
 
 // --------------------------------------------------------------- support

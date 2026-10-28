@@ -54,6 +54,14 @@ export const supportUpdateBody = z
   .refine((b) => b.status || b.assign_to_me || b.note, { message: "Nothing to change" })
   .refine((b) => b.status !== "resolved" || Boolean(b.note), { message: "A note is required to resolve a request", path: ["note"] });
 
+/** Role sets per store type (0632) and test logins (0633). The database checks the role exists. */
+export const STORE_TYPES = ["restaurant", "store", "service", "logistic"] as const;
+const roleSlug = z.string().trim().regex(/^[a-z_]{2,40}$/);
+export const roleSetParams = z.object({ storeType: z.enum(STORE_TYPES), role: roleSlug });
+export const orgParams = z.object({ id: z.string().uuid() });
+export const applyRoleSetBody = z.object({ store_type: z.enum(STORE_TYPES) });
+export const testLoginBody = z.object({ role: roleSlug.default("org_owner") });
+
 /** Platform hold on a business (master_set_platform_hold): always with a reason. */
 export const platformHoldBody = z.object({ hold: z.boolean(), reason: reasonSchema });
 
