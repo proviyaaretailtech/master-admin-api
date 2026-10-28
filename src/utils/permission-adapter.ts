@@ -765,6 +765,28 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
       },
     ],
   },
+  {
+    id: "feat_support",
+    name: "Support",
+    category: "operations",
+    pagePath: "/support",
+    description: "One inbox for customer and partner support requests.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_support",
+        label: "View Support Requests",
+        description: "See customer and partner support requests and their notes",
+        enabled: true,
+      },
+      {
+        key: "handle_support",
+        label: "Handle Support Requests",
+        description: "Take a request, add internal notes, and resolve or reopen it",
+        enabled: true,
+      },
+    ],
+  },
 ];
 
 /**

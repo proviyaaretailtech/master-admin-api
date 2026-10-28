@@ -18,6 +18,7 @@ import { orgService } from "../services/master/org.service";
 import { peopleService } from "../services/master/people.service";
 import { partnerApplicationService } from "../services/master/partner-application.service";
 import { customerService } from "../services/master/customer.service";
+import { supportService } from "../services/master/support.service";
 import { orderHoldService } from "../services/master/order-hold.service";
 import { pipelineService } from "../services/master/pipeline.service";
 import * as review from "../validators/master-review.validator";
@@ -286,6 +287,25 @@ r.get("/customers", can("feat_customers", "view_customers"), wrap(async (req, re
     summary: await customerService.summary(),
     ...(await customerService.list({ q: f.q, test, page: f.page, limit: f.limit })),
   });
+}));
+
+// --------------------------------------------------------------- support
+// One inbox over customer and partner support requests (0631). Notes are internal; nothing is sent from here.
+r.get("/support", can("feat_support", "view_support"), wrap(async (req, res, actor) => {
+  const f = review.supportQuery.parse(req.query);
+  res.status(OK).json({
+    message: "Support requests fetched successfully",
+    ...(await supportService.list({ source: f.source, status: f.status, mine: f.mine ? actor.id : undefined, q: f.q, page: f.page, limit: f.limit })),
+  });
+}));
+r.get("/support/:source/:id", can("feat_support", "view_support"), wrap(async (req, res) => {
+  const { source, id } = review.supportParams.parse(req.params);
+  res.status(OK).json({ message: "Support request fetched successfully", ...(await supportService.get(source, id)) });
+}));
+r.post("/support/:source/:id", canWrite("feat_support", "handle_support"), wrap(async (req, res, actor) => {
+  const { source, id } = review.supportParams.parse(req.params);
+  const body = review.supportUpdateBody.parse(req.body ?? {});
+  res.status(OK).json({ message: "Support request updated", result: await supportService.update(actor, source, id, body) });
 }));
 
 // Verification before approval: the four checks and each uploaded document (0372, 0630). The database refuses an

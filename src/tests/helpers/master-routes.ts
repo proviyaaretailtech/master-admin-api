@@ -72,6 +72,9 @@ export const MASTER_ROUTES: MRoute[] = [
   { method: "post", path: `/api/partner-applications/${ID}/documents/${ID}/view`, feature: "feat_partner_review", action: "view_documents" },
   w("post", `/api/partner-applications/${ID}/hold`, "feat_partner_review", "hold_partner"),
   g("/api/customers", "feat_customers", "view_customers"),
+  g("/api/support", "feat_support", "view_support"),
+  g(`/api/support/customer/${ID}`, "feat_support", "view_support"),
+  w("post", `/api/support/customer/${ID}`, "feat_support", "handle_support"),
   // order holds
   g("/api/order-holds", "feat_orders", "view_orders"),
   g(`/api/order-holds/${ID}`, "feat_orders", "view_orders"),

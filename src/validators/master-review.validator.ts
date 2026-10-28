@@ -35,6 +35,25 @@ export const customersQuery = z.object({
   ...pageQuery,
 });
 
+/** Support inbox (0631): customer requests and partner requests in one list. */
+export const supportQuery = z.object({
+  source: z.preprocess(emptyToUndef, z.enum(["customer", "partner"]).optional()),
+  status: z.preprocess(emptyToUndef, z.enum(["open", "in_progress", "resolved"]).optional()),
+  mine: z.preprocess((v) => v === "true" || v === true, z.boolean()).default(false),
+  q: optStr(100),
+  ...pageQuery,
+});
+export const supportParams = z.object({ source: z.enum(["customer", "partner"]), id: z.string().uuid() });
+/** Assign to me, change status, add an internal note, or several at once. Resolving needs a note (the database checks it again). */
+export const supportUpdateBody = z
+  .object({
+    status: z.enum(["open", "in_progress", "resolved"]).optional(),
+    assign_to_me: z.boolean().optional(),
+    note: z.string().trim().min(2).max(2000).optional(),
+  })
+  .refine((b) => b.status || b.assign_to_me || b.note, { message: "Nothing to change" })
+  .refine((b) => b.status !== "resolved" || Boolean(b.note), { message: "A note is required to resolve a request", path: ["note"] });
+
 /** Platform hold on a business (master_set_platform_hold): always with a reason. */
 export const platformHoldBody = z.object({ hold: z.boolean(), reason: reasonSchema });
 
