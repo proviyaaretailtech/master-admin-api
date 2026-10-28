@@ -28,6 +28,13 @@ export const documentBody = z
   .object({ status: z.enum(["under_review", "verified", "rejected"]), note: z.string().trim().max(500).optional() })
   .refine((b) => b.status !== "rejected" || (b.note ?? "").length >= 3, { message: "A note of 3 to 500 characters is required to reject a document", path: ["note"] });
 
+/** Customers list: search by email/phone, and show real, test or all accounts (default: real only). */
+export const customersQuery = z.object({
+  q: optStr(100),
+  accounts: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["real", "test", "all"]).default("real")),
+  ...pageQuery,
+});
+
 /** Platform hold on a business (master_set_platform_hold): always with a reason. */
 export const platformHoldBody = z.object({ hold: z.boolean(), reason: reasonSchema });
 

@@ -17,6 +17,7 @@ import { financeService } from "../services/master/finance.service";
 import { orgService } from "../services/master/org.service";
 import { peopleService } from "../services/master/people.service";
 import { partnerApplicationService } from "../services/master/partner-application.service";
+import { customerService } from "../services/master/customer.service";
 import { orderHoldService } from "../services/master/order-hold.service";
 import { pipelineService } from "../services/master/pipeline.service";
 import * as review from "../validators/master-review.validator";
@@ -275,6 +276,18 @@ r.post("/partner-applications/:id/reject", canWrite("feat_partner_review", "reje
   const result = await partnerApplicationService.decide(actor, id, "reject", reason);
   res.status(OK).json({ message: result.replayed ? "Partner application was already rejected" : "Partner application rejected", result });
 }));
+// ------------------------------------------------------------- customers
+// People using the customer app (logins that are not partner staff, riders or platform staff); masked on the server.
+r.get("/customers", can("feat_customers", "view_customers"), wrap(async (req, res) => {
+  const f = review.customersQuery.parse(req.query);
+  const test = f.accounts === "all" ? undefined : f.accounts === "test";
+  res.status(OK).json({
+    message: "Customers fetched successfully",
+    summary: await customerService.summary(),
+    ...(await customerService.list({ q: f.q, test, page: f.page, limit: f.limit })),
+  });
+}));
+
 // Verification before approval: the four checks and each uploaded document (0372, 0630). The database refuses an
 // approval until all of them are verified, so these are the only way to an approval.
 r.post("/partner-applications/:id/checks/:kind", canWrite("feat_partner_review", "verify_checks"), wrap(async (req, res, actor) => {

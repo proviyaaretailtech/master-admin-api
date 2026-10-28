@@ -749,6 +749,22 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
       },
     ],
   },
+  {
+    id: "feat_customers",
+    name: "Customers",
+    category: "access_control",
+    pagePath: "/customers",
+    description: "See how many people use the customer app, with email and phone partly hidden.",
+    accessLevel: "read_only",
+    actions: [
+      {
+        key: "view_customers",
+        label: "View Customers",
+        description: "See the customer count and the masked customer list",
+        enabled: true,
+      },
+    ],
+  },
 ];
 
 /**
