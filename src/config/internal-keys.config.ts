@@ -9,6 +9,9 @@ import { createHash, timingSafeEqual } from "node:crypto";
  *  - admin-frontend: the Master Admin panel's own proxy (master-admin-frontend, /_s/*). Staff routes only.
  *  - customer / partner / rider / pos: the app servers. /internal/* routes only.
  *
+ * Rotation without downtime: each server may also have a `<NAME>_NEXT` key, which is the same caller.
+ * Set the new key as _NEXT here, move the calling server to it, then promote it to <NAME> and unset _NEXT.
+ *
  * Only SHA-256 digests are kept in memory; comparison is constant time against every configured key.
  */
 export const INTERNAL_CALLERS = ["admin-frontend", "customer", "partner", "rider", "pos"] as const;
@@ -21,6 +24,9 @@ export const INTERNAL_KEY_ENV: Record<InternalCaller, string> = {
   rider: "INTERNAL_KEY_RIDER",
   pos: "INTERNAL_KEY_POS",
 };
+
+/** Suffix of the second accepted key per server, used while rotating. */
+export const NEXT_KEY_SUFFIX = "_NEXT";
 
 /** A key shorter than this is treated as unset (generate with `openssl rand -hex 32`). */
 export const MIN_INTERNAL_KEY_LENGTH = 32;
@@ -35,8 +41,10 @@ const digestOf = (value: string): Buffer => createHash("sha256").update(value, "
 export function internalKeysFromEnv(env: NodeJS.ProcessEnv): InternalKey[] {
   const keys: InternalKey[] = [];
   for (const caller of INTERNAL_CALLERS) {
-    const value = (env[INTERNAL_KEY_ENV[caller]] || "").trim();
-    if (value.length >= MIN_INTERNAL_KEY_LENGTH) keys.push({ caller, digest: digestOf(value) });
+    for (const name of [INTERNAL_KEY_ENV[caller], INTERNAL_KEY_ENV[caller] + NEXT_KEY_SUFFIX]) {
+      const value = (env[name] || "").trim();
+      if (value.length >= MIN_INTERNAL_KEY_LENGTH) keys.push({ caller, digest: digestOf(value) });
+    }
   }
   return keys;
 }

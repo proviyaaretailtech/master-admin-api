@@ -22,6 +22,14 @@ async function seedApplication(city: string, o: { email?: string | null; status?
   );
   return r.rows[0].id;
 }
+/** Operations' four checks (0371/0372): approval is refused until every one is verified. */
+async function verifyChecks(applicationId: string, by: string) {
+  await query(
+    `INSERT INTO ol_partner_application_checks (application_id, kind, status, decided_by, decided_at)
+     SELECT $1, k, 'verified', $2, now() FROM unnest(ARRAY['individual_identity','business_identity','business_address','bank_ownership']) AS k;`,
+    [applicationId, by]
+  );
+}
 async function seedLogin(email: string, confirmed = true): Promise<string> {
   const r = await query<{ id: string }>(
     `INSERT INTO auth.users (id, instance_id, aud, role, email, email_confirmed_at)
@@ -97,6 +105,7 @@ describe("Master: partner applications", () => {
     const login = await seedLogin(email);
     staffIds.push(login);
     const id = await seedApplication(city, { email });
+    await verifyChecks(id, reviewer.id);
     const res = await request(app).post(`/api/partner-applications/${id}/approve`).set(bearer(reviewer)).send({ reason: "Shop visited" });
     expect(res.status).toBe(200);
     const out = res.body.result;
@@ -113,6 +122,7 @@ describe("Master: partner applications", () => {
 
   it("approving twice, even at the same moment, makes exactly one organisation", async () => {
     const id = await seedApplication(city);
+    await verifyChecks(id, sa.id);
     const [a, b] = await Promise.all([
       request(app).post(`/api/partner-applications/${id}/approve`).set(bearer(sa)).send({}),
       request(app).post(`/api/partner-applications/${id}/approve`).set(bearer(sa)).send({}),
@@ -128,10 +138,20 @@ describe("Master: partner applications", () => {
 
   it("with no login the owner is invited instead", async () => {
     const id = await seedApplication(city);
+    await verifyChecks(id, reviewer.id);
     const res = await request(app).post(`/api/partner-applications/${id}/approve`).set(bearer(reviewer)).send({});
     expect(res.status).toBe(200);
     expect(res.body.result).toMatchObject({ owner_membership: false, applicant_user_id: null });
     expect(res.body.result.invitation_id).toBeTruthy();
+  });
+
+  it("approve is refused (400 ol_checks_pending) until all four checks are verified", async () => {
+    const id = await seedApplication(city);
+    const res = await request(app).post(`/api/partner-applications/${id}/approve`).set(bearer(reviewer)).send({});
+    expect(res.status).toBe(400);
+    expect(res.body.errorCode).toBe("ol_checks_pending");
+    const row = await query(`SELECT status, organization_id FROM ol_partner_applications WHERE id = $1;`, [id]);
+    expect(row.rows[0]).toEqual({ status: "submitted", organization_id: null });
   });
 
   it("reject needs a reason, records it, and is final", async () => {
@@ -210,7 +230,12 @@ describe("Master: order holds", () => {
     else process.env.ONE_LOCAL_API_URL = realUrl;
   });
   afterAll(async () => {
-    await query(`DELETE FROM ol_orders WHERE id = ANY($1::uuid[]);`, [orderIds]); // holds and items go with the order
+    // Holds and items go with the order. The delete guard wants a reason from the owner role, set in this same statement.
+    await query(
+      `WITH r AS (SELECT set_config('app.ol_order_delete_reason', 'master-review test cleanup', true))
+       DELETE FROM ol_orders WHERE id = ANY($1::uuid[]) AND EXISTS (SELECT 1 FROM r);`,
+      [orderIds]
+    );
     await cleanup({ staffIds, roleKeys });
   });
 
