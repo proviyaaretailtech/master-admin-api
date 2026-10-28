@@ -1,10 +1,20 @@
 import { query } from "../../config/database.config";
 import { Actor } from "../../utils/authz";
-import { NotFoundException } from "../../utils/app-error";
+import { BadRequestException, NotFoundException } from "../../utils/app-error";
+import { supabaseAdmin } from "../../config/supabase.config";
 import { likePattern, pageMeta } from "../../validators/master.validator";
 import { Row, Where } from "./common";
 
 type Json = Record<string, unknown>;
+
+/** Private bucket the partner app uploads into (0348). */
+const DOCUMENT_BUCKET = "partner-documents";
+
+/** A document id from the URL must belong to the application in the URL. */
+async function assertDocumentOf(id: string, docId: string) {
+  const r = await query(`SELECT 1 FROM ol_partner_application_documents WHERE id = $1 AND application_id = $2;`, [docId, id]);
+  if (!r.rowCount) throw new NotFoundException("Document not found");
+}
 
 /** Columns a reviewer sees in the queue. Personal data is readable by platform staff only (0334). */
 const LIST_COLUMNS = `a.id, a.reference, a.status, a.business_name, a.partner_type, a.business_type, a.category_family, a.category,
@@ -74,7 +84,97 @@ export const partnerApplicationService = {
         WHERE entity_type = 'ol_partner_applications' AND entity_id = $1 ORDER BY created_at DESC LIMIT 20;`,
       [id]
     );
-    return { application: app, login_match, history: history.rows };
+    // The four checks always come back (a missing row reads as pending), documents without their storage path, and the
+    // bank account as last four digits only: the full number stays encrypted in the database.
+    const checks = await query<Row>(
+      `SELECT k.kind, coalesce(c.status, 'pending') AS status, c.note, c.decided_at,
+              nullif(btrim(concat_ws(' ', pa.first_name, pa.last_name)), '') AS decided_by_name
+         FROM unnest(ARRAY['individual_identity','business_identity','business_address','bank_ownership']) WITH ORDINALITY AS k(kind, n)
+         LEFT JOIN ol_partner_application_checks c ON c.application_id = $1 AND c.kind = k.kind
+         LEFT JOIN platform_admins pa ON pa.user_id = c.decided_by
+        ORDER BY k.n;`,
+      [id]
+    );
+    const documents = await query<Row>(
+      `SELECT d.id, d.kind, d.file_name, d.mime_type, d.size_bytes, d.status, d.review_note, d.uploaded_at, d.reviewed_at,
+              nullif(btrim(concat_ws(' ', pa.first_name, pa.last_name)), '') AS reviewed_by_name
+         FROM ol_partner_application_documents d LEFT JOIN platform_admins pa ON pa.user_id = d.reviewed_by
+        WHERE d.application_id = $1 ORDER BY d.uploaded_at;`,
+      [id]
+    );
+    const bank = await query<Row>(
+      `SELECT holder_name, bank_name, account_last4, ifsc, account_type, status, verified_at
+         FROM ol_partner_application_bank WHERE application_id = $1;`,
+      [id]
+    );
+    const hold = app.organization_id
+      ? (
+          await query<Row>(
+            `SELECT platform_hold, platform_hold_reason, platform_hold_at, accepting,
+                    nullif(btrim(concat_ws(' ', pa.first_name, pa.last_name)), '') AS platform_hold_by_name
+               FROM ol_merchant_channels c LEFT JOIN platform_admins pa ON pa.user_id = c.platform_hold_by
+              WHERE c.organization_id = $1;`,
+            [app.organization_id]
+          )
+        ).rows[0] ?? null
+      : null;
+    return { application: app, login_match, history: history.rows, checks: checks.rows, documents: documents.rows, bank: bank.rows[0] ?? null, hold };
+  },
+
+  async setCheck(actor: Actor, id: string, kind: string, status: string, note: string | undefined) {
+    const r = await query<{ r: Json }>(`SELECT public.master_partner_application_check_set($1::uuid, $2, $3, $4, $5::uuid) AS r;`, [
+      id,
+      kind,
+      status,
+      note ?? null,
+      actor.id,
+    ]);
+    return r.rows[0].r;
+  },
+
+  async setDocument(actor: Actor, id: string, docId: string, status: string, note: string | undefined) {
+    await assertDocumentOf(id, docId);
+    const r = await query<{ r: Json }>(`SELECT public.master_partner_application_document_set($1::uuid, $2, $3, $4::uuid) AS r;`, [
+      docId,
+      status,
+      note ?? null,
+      actor.id,
+    ]);
+    return r.rows[0].r;
+  },
+
+  /** Records the look first (0630), then a link that works for 60 seconds. There is no download link. */
+  async viewDocument(actor: Actor, id: string, docId: string) {
+    await assertDocumentOf(id, docId);
+    const r = await query<{ r: { storage_path: string; mime_type: string; file_name: string } }>(
+      `SELECT public.master_partner_document_viewed($1::uuid, $2::uuid) AS r;`,
+      [docId, actor.id]
+    );
+    const doc = r.rows[0].r;
+    // storage answering an error, or not answering at all, is the same to the reviewer: the file cannot be opened now
+    let url: string | null = null;
+    try {
+      const signed = await supabaseAdmin.storage.from(DOCUMENT_BUCKET).createSignedUrl(doc.storage_path, 60);
+      url = signed.error ? null : (signed.data?.signedUrl ?? null);
+    } catch {
+      url = null;
+    }
+    if (!url) throw new NotFoundException("The document file could not be opened");
+    return { url, mime_type: doc.mime_type, file_name: doc.file_name, expires_in: 60 };
+  },
+
+  /** Platform hold on the business the application created (master_set_platform_hold: audited, emits an event). */
+  async setHold(actor: Actor, id: string, hold: boolean, reason: string) {
+    const org = (await query<{ organization_id: string | null }>(`SELECT organization_id FROM ol_partner_applications WHERE id = $1;`, [id])).rows[0];
+    if (!org) throw new NotFoundException("Partner application not found");
+    if (!org.organization_id) throw new BadRequestException("This partner has no business yet: approve the application first");
+    const r = await query<{ r: Json }>(`SELECT public.master_set_platform_hold($1::uuid, $2::boolean, $3, $4::uuid) AS r;`, [
+      org.organization_id,
+      hold,
+      reason,
+      actor.id,
+    ]);
+    return r.rows[0].r;
   },
 
   async decide(actor: Actor, id: string, decision: "approve" | "reject", reason: string | undefined) {

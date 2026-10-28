@@ -275,6 +275,28 @@ r.post("/partner-applications/:id/reject", canWrite("feat_partner_review", "reje
   const result = await partnerApplicationService.decide(actor, id, "reject", reason);
   res.status(OK).json({ message: result.replayed ? "Partner application was already rejected" : "Partner application rejected", result });
 }));
+// Verification before approval: the four checks and each uploaded document (0372, 0630). The database refuses an
+// approval until all of them are verified, so these are the only way to an approval.
+r.post("/partner-applications/:id/checks/:kind", canWrite("feat_partner_review", "verify_checks"), wrap(async (req, res, actor) => {
+  const { id, kind } = review.checkParams.parse(req.params);
+  const { status, note } = review.checkBody.parse(req.body ?? {});
+  res.status(OK).json({ message: "Check updated", result: await partnerApplicationService.setCheck(actor, id, kind, status, note) });
+}));
+r.post("/partner-applications/:id/documents/:docId/review", canWrite("feat_partner_review", "review_documents"), wrap(async (req, res, actor) => {
+  const { id, docId } = review.documentParams.parse(req.params);
+  const { status, note } = review.documentBody.parse(req.body ?? {});
+  res.status(OK).json({ message: "Document updated", result: await partnerApplicationService.setDocument(actor, id, docId, status, note) });
+}));
+// Every view is recorded before the 60-second link is made (0630).
+r.post("/partner-applications/:id/documents/:docId/view", can("feat_partner_review", "view_documents"), wrap(async (req, res, actor) => {
+  const { id, docId } = review.documentParams.parse(req.params);
+  res.status(OK).json({ message: "Document link created", ...(await partnerApplicationService.viewDocument(actor, id, docId)) });
+}));
+r.post("/partner-applications/:id/hold", canWrite("feat_partner_review", "hold_partner"), wrap(async (req, res, actor) => {
+  const { id } = idParams.parse(req.params);
+  const { hold, reason } = review.platformHoldBody.parse(req.body ?? {});
+  res.status(OK).json({ message: hold ? "Partner put on hold" : "Partner hold lifted", result: await partnerApplicationService.setHold(actor, id, hold, reason) });
+}));
 
 // ------------------------------------------------------------ order holds
 // Orders held for review (ol_order_holds). Decisions go through One Local, which sends the order on or refunds it.

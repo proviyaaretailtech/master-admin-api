@@ -174,6 +174,97 @@ describe("Master: partner applications", () => {
     const missing = await request(app).post(`/api/partner-applications/00000000-0000-0000-0000-0000000000ab/reject`).set(bearer(reviewer)).send({ reason: "Gone" });
     expect(missing.status).toBe(404);
   });
+
+  // ------------------------------------------------ checks, documents and hold in Master (0630)
+  async function seedDocument(applicationId: string, kind: string) {
+    const r = await query<{ id: string }>(
+      `INSERT INTO ol_partner_application_documents (application_id, kind, storage_path, file_name, mime_type, size_bytes)
+       VALUES ($1, $2, $3, 'doc.pdf', 'application/pdf', 1000) RETURNING id;`,
+      [applicationId, kind, `apps/${applicationId}/${kind}.pdf`]
+    );
+    return r.rows[0].id;
+  }
+
+  it("detail lists the four checks (missing = pending), documents without their path, and the bank as last four only", async () => {
+    const id = await seedApplication(city);
+    await seedDocument(id, "pan_copy");
+    await query(
+      `INSERT INTO ol_partner_application_bank (application_id, holder_name, bank_name, account_last4, account_enc, ifsc, account_type, status)
+       VALUES ($1, 'Asha Patil', 'State Bank', '4321', '\\x00'::bytea, 'SBIN0001234', 'savings', 'unverified');`,
+      [id]
+    );
+    const res = await request(app).get(`/api/partner-applications/${id}`).set(bearer(viewer));
+    expect(res.status).toBe(200);
+    expect(res.body.checks.map((c: { kind: string; status: string }) => [c.kind, c.status])).toEqual([
+      ["individual_identity", "pending"],
+      ["business_identity", "pending"],
+      ["business_address", "pending"],
+      ["bank_ownership", "pending"],
+    ]);
+    expect(res.body.documents).toHaveLength(1);
+    expect(res.body.documents[0].storage_path).toBeUndefined();
+    expect(res.body.bank).toMatchObject({ account_last4: "4321", status: "unverified" });
+    expect(JSON.stringify(res.body.bank)).not.toContain("account_enc");
+    expect(res.body.hold).toBeNull();
+  });
+
+  it("checks: a viewer cannot set them (403); failed needs a note; verified is recorded with who", async () => {
+    const granted = await staffWith({ feat_partner_review: ["view_applications", "verify_checks"] }, roleKeys);
+    staffIds.push(granted.id);
+    const id = await seedApplication(city);
+    expect((await request(app).post(`/api/partner-applications/${id}/checks/business_identity`).set(bearer(viewer)).send({ status: "verified" })).status).toBe(403);
+    expect((await request(app).post(`/api/partner-applications/${id}/checks/business_identity`).set(bearer(granted)).send({ status: "failed" })).status).toBe(400);
+    expect((await request(app).post(`/api/partner-applications/${id}/checks/not_a_check`).set(bearer(granted)).send({ status: "verified" })).status).toBe(400);
+    const ok = await request(app).post(`/api/partner-applications/${id}/checks/business_identity`).set(bearer(granted)).send({ status: "verified" });
+    expect(ok.status).toBe(200);
+    const row = await query(`SELECT status, decided_by FROM ol_partner_application_checks WHERE application_id = $1 AND kind = 'business_identity';`, [id]);
+    expect(row.rows[0]).toEqual({ status: "verified", decided_by: granted.id });
+  });
+
+  it("documents: reject needs a note, a document of another application is 404, and approval waits for every document", async () => {
+    const id = await seedApplication(city);
+    const other = await seedApplication(city);
+    const doc = await seedDocument(id, "pan_copy");
+    const foreign = await seedDocument(other, "pan_copy");
+    await verifyChecks(id, reviewer.id);
+    expect((await request(app).post(`/api/partner-applications/${id}/documents/${doc}/review`).set(bearer(sa)).send({ status: "rejected" })).status).toBe(400);
+    expect((await request(app).post(`/api/partner-applications/${id}/documents/${foreign}/review`).set(bearer(sa)).send({ status: "verified" })).status).toBe(404);
+    const blocked = await request(app).post(`/api/partner-applications/${id}/approve`).set(bearer(sa)).send({});
+    expect(blocked.status).toBe(400);
+    expect(blocked.body.errorCode).toBe("ol_docs_pending");
+    expect((await request(app).post(`/api/partner-applications/${id}/documents/${doc}/review`).set(bearer(sa)).send({ status: "verified" })).status).toBe(200);
+    const approved = await request(app).post(`/api/partner-applications/${id}/approve`).set(bearer(sa)).send({});
+    expect(approved.status).toBe(200);
+    expect(approved.body.result.status).toBe("approved");
+  });
+
+  it("viewing a document is recorded even when the file is missing, and the response never carries the storage path", async () => {
+    const id = await seedApplication(city);
+    const doc = await seedDocument(id, "business_proof");
+    const res = await request(app).post(`/api/partner-applications/${id}/documents/${doc}/view`).set(bearer(sa));
+    expect([200, 404]).toContain(res.status);
+    expect(JSON.stringify(res.body)).not.toContain(`apps/${id}`);
+    const audit = await query(`SELECT actor_user_id FROM audit_logs WHERE action = 'partner_application.document_viewed' AND entity_id = $1;`, [id]);
+    expect(audit.rows).toEqual([{ actor_user_id: sa.id }]);
+  });
+
+  it("hold: needs a reason, refused before approval, and holds then releases an approved partner", async () => {
+    const id = await seedApplication(city);
+    expect((await request(app).post(`/api/partner-applications/${id}/hold`).set(bearer(sa)).send({ hold: true })).status).toBe(400);
+    const early = await request(app).post(`/api/partner-applications/${id}/hold`).set(bearer(sa)).send({ hold: true, reason: "Checking documents" });
+    expect(early.status).toBe(400);
+    await verifyChecks(id, reviewer.id);
+    const org = (await request(app).post(`/api/partner-applications/${id}/approve`).set(bearer(sa)).send({})).body.result.organization_id;
+    await query(`INSERT INTO ol_merchant_channels (organization_id, accepting) VALUES ($1, false) ON CONFLICT DO NOTHING;`, [org]);
+    const held = await request(app).post(`/api/partner-applications/${id}/hold`).set(bearer(sa)).send({ hold: true, reason: "Customer complaints" });
+    expect(held.status).toBe(200);
+    const detail = await request(app).get(`/api/partner-applications/${id}`).set(bearer(sa));
+    expect(detail.body.hold).toMatchObject({ platform_hold: true, platform_hold_reason: "Customer complaints" });
+    const released = await request(app).post(`/api/partner-applications/${id}/hold`).set(bearer(sa)).send({ hold: false, reason: "Resolved" });
+    expect(released.status).toBe(200);
+    expect((await query(`SELECT platform_hold FROM ol_merchant_channels WHERE organization_id = $1;`, [org])).rows[0].platform_hold).toBe(false);
+    await query(`DELETE FROM ol_merchant_channels WHERE organization_id = $1;`, [org]).catch(() => undefined);
+  });
 });
 
 describe("Master: order holds", () => {

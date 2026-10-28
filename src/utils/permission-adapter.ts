@@ -74,6 +74,30 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
         description: "Permanently delete partner and all records",
         enabled: true,
       },
+      {
+        key: "verify_checks",
+        label: "Verify Checks",
+        description: "Mark the identity, business, address and bank checks verified or failed",
+        enabled: true,
+      },
+      {
+        key: "view_documents",
+        label: "View Documents",
+        description: "Open an uploaded document for 60 seconds; every view is recorded",
+        enabled: true,
+      },
+      {
+        key: "review_documents",
+        label: "Review Documents",
+        description: "Verify or reject each uploaded document",
+        enabled: true,
+      },
+      {
+        key: "hold_partner",
+        label: "Hold Partner",
+        description: "Put a partner on hold or lift the hold, with a reason",
+        enabled: true,
+      },
     ],
   },
   {
