@@ -1,5 +1,5 @@
 {
-  "name": "backend",
+  "name": "master-admin-server",
   "version": "1.0.0",
   "description": "Express + TypeScript + Supabase backend",
   "main": "dist/index.js",

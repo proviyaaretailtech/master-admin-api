@@ -40,7 +40,7 @@ export function requireInternalKey(options: { openPaths: string[]; keys?: Intern
   };
 }
 
-/** Lets only the named servers through (staff routes: admin-web; /internal/*: the app servers). */
+/** Lets only the named servers through (staff routes: admin-frontend; /internal/*: the app servers). */
 export function allowCallers(...callers: InternalCaller[]) {
   const allowed = new Set(callers);
   return (req: Request, _res: Response, next: NextFunction) => {

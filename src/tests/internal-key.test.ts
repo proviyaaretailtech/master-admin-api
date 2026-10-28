@@ -16,7 +16,7 @@ describe("Master server: only our own servers may call it", () => {
     for (const path of ["/", "/api/me/context", "/api/internal/whoami", "/api/does-not-exist"]) {
       const res = await request(app).get(path).unset("x-internal-key");
       expect(res.status, path).toBe(401);
-      expect(JSON.stringify(res.body)).not.toMatch(/INTERNAL_KEY|admin-web|customer/);
+      expect(JSON.stringify(res.body)).not.toMatch(/INTERNAL_KEY|admin-frontend|customer/);
     }
   });
 
@@ -30,7 +30,7 @@ describe("Master server: only our own servers may call it", () => {
       const res = await request(app).get("/api/me/context").set("x-internal-key", TEST_INTERNAL_KEYS[caller]);
       expect(res.status, caller).toBe(403);
     }
-    // admin-web passes the gate and reaches the staff sign-in check.
+    // admin-frontend passes the gate and reaches the staff sign-in check.
     const res = await request(app).get("/api/me/context");
     expect(res.status).toBe(401);
   });
@@ -49,12 +49,12 @@ describe("Master server: only our own servers may call it", () => {
 describe("internal keys", () => {
   it("ignores unset and too-short keys and tells callers apart", () => {
     const keys = internalKeysFromEnv({
-      INTERNAL_KEY_ADMIN_WEB: "a".repeat(40),
+      INTERNAL_KEY_ADMIN_FRONTEND: "a".repeat(40),
       INTERNAL_KEY_CUSTOMER: "short",
       INTERNAL_KEY_RIDER: "r".repeat(32),
     });
-    expect(keys.map((k) => k.caller)).toEqual(["admin-web", "rider"]);
-    expect(identifyCaller("a".repeat(40), keys)).toBe("admin-web");
+    expect(keys.map((k) => k.caller)).toEqual(["admin-frontend", "rider"]);
+    expect(identifyCaller("a".repeat(40), keys)).toBe("admin-frontend");
     expect(identifyCaller("r".repeat(32), keys)).toBe("rider");
     expect(identifyCaller("short", keys)).toBeNull();
     expect(identifyCaller(undefined, keys)).toBeNull();
@@ -62,7 +62,7 @@ describe("internal keys", () => {
   });
 
   it("trusts the forwarded client IP only on a request with a valid key", async () => {
-    const keys = internalKeysFromEnv({ INTERNAL_KEY_ADMIN_WEB: "k".repeat(40) });
+    const keys = internalKeysFromEnv({ INTERNAL_KEY_ADMIN_FRONTEND: "k".repeat(40) });
     const probe = express();
     probe.use(requireInternalKey({ openPaths: ["/open"], keys }));
     probe.get(["/ip", "/open"], (req, res) => res.json({ ip: req.ip }));

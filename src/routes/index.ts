@@ -20,7 +20,7 @@ const router = Router();
 // which accept only the Master Admin panel's own proxy.
 router.use("/internal", internalRoutes);
 router.use("/health", healthRoutes);
-router.use(allowCallers("admin-web"));
+router.use(allowCallers("admin-frontend"));
 
 // Master immediate build (shell, org lifecycle, riders, rider pay, commission, orders, dispatch, finance, audit)
 router.use("/", masterRoutes);

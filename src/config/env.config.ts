@@ -43,7 +43,7 @@ if (Env.NODE_ENV === "production") {
     throw new Error(`Refusing to start in production without: ${missing.join(", ")}`);
   }
   // Without the panel's key nobody could use the Master server at all; refuse rather than run locked.
-  if (!internalKeysFromEnv(process.env).some((k) => k.caller === "admin-web")) {
-    throw new Error(`Refusing to start in production without: ${INTERNAL_KEY_ENV["admin-web"]} (32+ characters)`);
+  if (!internalKeysFromEnv(process.env).some((k) => k.caller === "admin-frontend")) {
+    throw new Error(`Refusing to start in production without: ${INTERNAL_KEY_ENV["admin-frontend"]} (32+ characters)`);
   }
 }
