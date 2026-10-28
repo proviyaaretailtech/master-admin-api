@@ -551,6 +551,12 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
         description: "Send a held order to its restaurant or cancel and refund it",
         enabled: true,
       },
+      {
+        key: "run_pipeline",
+        label: "Run the Event Follower",
+        description: "Make Master catch up on the event log now (the pipeline view shows how far behind it is)",
+        enabled: true,
+      },
     ],
   },
   {

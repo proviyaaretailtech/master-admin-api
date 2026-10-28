@@ -18,6 +18,7 @@ import { orgService } from "../services/master/org.service";
 import { peopleService } from "../services/master/people.service";
 import { partnerApplicationService } from "../services/master/partner-application.service";
 import { orderHoldService } from "../services/master/order-hold.service";
+import { pipelineService } from "../services/master/pipeline.service";
 import * as review from "../validators/master-review.validator";
 import { createOrganizationSchema } from "../validators/organization.validator";
 
@@ -28,6 +29,7 @@ import { createOrganizationSchema } from "../validators/organization.validator";
  */
 const r = Router();
 const OK = HTTPSTATUS.OK;
+const pipelineStatusQuery = z.object({ minutes: z.coerce.number().int().min(5).max(1440).default(60) });
 const idem = (req: Request) => {
   const k = req.header("idempotency-key");
   return k && /^[\w:.-]{8,200}$/.test(k) ? k : undefined;
@@ -293,6 +295,16 @@ for (const [verb, msg] of [
     res.status(OK).json({ message: msg, result: await orderHoldService.decide(actor, req.token ?? "", id, verb, reason) });
   }));
 }
+
+// --------------------------------------------------------------- pipeline
+// Master follows the event log (domain_events). Status reads only; follow moves Master's bookmark and its counters.
+r.get("/pipeline/status", can("feat_orders", "view_orders"), wrap(async (req, res) => {
+  const { minutes } = pipelineStatusQuery.parse(req.query);
+  res.status(OK).json({ message: "Pipeline status fetched successfully", ...(await pipelineService.status(minutes)) });
+}));
+r.post("/pipeline/follow", canWrite("feat_orders", "run_pipeline"), wrap(async (_req, res) => {
+  res.status(OK).json({ message: "Event follower ran", result: await pipelineService.follow() });
+}));
 
 // ------------------------------------------------------------------ audit
 r.get("/audit-logs", can("feat_audit_compliance", "view_audit_logs"), wrap(async (req, res) => {

@@ -144,6 +144,13 @@ export const readService = {
       ...((trace.order_events as Row[]) ?? []).map((e) => ({ at: e.created_at, source: "order", kind: e.kind ?? e.event_type ?? e.type ?? "event", detail: e })),
       ...((trace.payments as Row[]) ?? []).map((p) => ({ at: p.created_at, source: "payment", kind: `payment.${String(p.method ?? "")}`, detail: { id: p.id, amount_minor: p.amount_minor, currency_code: p.currency_code, method: p.method } })),
       ...dev.rows.map((e) => ({ at: e.created_at, source: "delivery", kind: e.kind, detail: e.meta })),
+      // receipts from the event log (0590): every step on both sides of the order, with the app and pipe it came through
+      ...((trace.events as Row[]) ?? []).map((e) => ({
+        at: e.occurred_at,
+        source: "event",
+        kind: e.event_type,
+        detail: { app: e.source, via: e.via, idempotency_key: e.idempotency_key, payload: e.payload },
+      })),
     ].sort((a, b) => new Date(a.at as string).getTime() - new Date(b.at as string).getTime());
     const cleaned = scrub(trace);
     for (const c of (cleaned.consumer_orders as Row[]) ?? []) {

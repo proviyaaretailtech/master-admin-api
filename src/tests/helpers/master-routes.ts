@@ -72,6 +72,9 @@ export const MASTER_ROUTES: MRoute[] = [
   g(`/api/order-holds/${ID}`, "feat_orders", "view_orders"),
   w("post", `/api/order-holds/${ID}/release`, "feat_orders", "decide_order_holds"),
   w("post", `/api/order-holds/${ID}/reject`, "feat_orders", "decide_order_holds"),
+  // pipeline (event log follower)
+  g("/api/pipeline/status", "feat_orders", "view_orders"),
+  w("post", "/api/pipeline/follow", "feat_orders", "run_pipeline"),
   // dispatch
   g("/api/dispatch/jobs", "feat_dispatch", "view_dispatch"),
   g(`/api/dispatch/jobs/${ID}`, "feat_dispatch", "view_dispatch"),
