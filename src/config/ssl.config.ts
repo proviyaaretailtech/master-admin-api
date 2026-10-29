@@ -20,11 +20,40 @@ export type SslSetting =
 export const isLocalDatabaseUrl = (url: string): boolean =>
   /@(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\//.test(url) || /^postgres(?:ql)?:\/\/(localhost|127\.0\.0\.1)/.test(url);
 
+const PEM_BLOCK = /-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/g;
+
+/**
+ * Rebuilds PEM text that a dashboard flattened (line breaks turned into spaces, or literal "\n").
+ * Each certificate's base64 body is re-wrapped at 64 characters; text without a certificate is returned as is.
+ */
+export function normalizePem(raw: string): string {
+  const text = raw.replace(/\\n/g, "\n").trim();
+  const blocks = [...text.matchAll(PEM_BLOCK)].map((m) => {
+    const body = m[1].replace(/\s+/g, "");
+    return `-----BEGIN CERTIFICATE-----\n${body.match(/.{1,64}/g)?.join("\n") ?? ""}\n-----END CERTIFICATE-----`;
+  });
+  return blocks.length ? blocks.join("\n") + "\n" : text;
+}
+
+const looksLikePem = (v: string) => v.includes("-----BEGIN CERTIFICATE-----");
+
+function readCaFile(path: string): string {
+  try {
+    return fs.readFileSync(path, "utf8");
+  } catch {
+    // Hosted builds do not ship certs/ (it is gitignored): say what to set instead of a bare ENOENT.
+    throw new Error(
+      `DATABASE_SSL_CA_FILE points to ${path}, which is not in this deployment. Put the certificate text in DATABASE_SSL_CA instead.`
+    );
+  }
+}
+
 export function sslSettingFromEnv(env: NodeJS.ProcessEnv): SslSetting {
   let ca = (env.DATABASE_SSL_CA || "").trim();
-  if (ca) ca = ca.replace(/\\n/g, "\n");
   const caFile = (env.DATABASE_SSL_CA_FILE || "").trim();
-  if (!ca && caFile) ca = fs.readFileSync(caFile, "utf8");
+  // The certificate pasted into the path setting is accepted as the certificate itself.
+  if (!ca && caFile) ca = looksLikePem(caFile) ? caFile : readCaFile(caFile);
+  if (ca) ca = normalizePem(ca);
   if (ca) return { mode: "pinned", ssl: { ca, rejectUnauthorized: true } };
   if ((env.DATABASE_SSL_REJECT_UNAUTHORIZED || "").trim().toLowerCase() === "false") {
     return { mode: "insecure", ssl: { rejectUnauthorized: false } };
