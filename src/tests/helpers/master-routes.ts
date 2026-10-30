@@ -86,6 +86,14 @@ export const MASTER_ROUTES: MRoute[] = [
   g(`/api/order-holds/${ID}`, "feat_orders", "view_orders"),
   w("post", `/api/order-holds/${ID}/release`, "feat_orders", "decide_order_holds"),
   w("post", `/api/order-holds/${ID}/reject`, "feat_orders", "decide_order_holds"),
+  // customer-app pop-ups, relayed to One Local
+  g("/api/popups", "feat_customer_popups", "view_popups"),
+  g(`/api/popups/${ID}`, "feat_customer_popups", "view_popups"),
+  g(`/api/popups/${ID}/results`, "feat_customer_popups", "view_popups"),
+  w("post", "/api/popups", "feat_customer_popups", "manage_popups"),
+  w("put", `/api/popups/${ID}`, "feat_customer_popups", "manage_popups"),
+  w("post", `/api/popups/${ID}/status`, "feat_customer_popups", "manage_popups"),
+  w("post", "/api/popups/media/upload-url", "feat_customer_popups", "manage_popups"),
   // pipeline (event log follower)
   g("/api/pipeline/status", "feat_orders", "view_orders"),
   w("post", "/api/pipeline/follow", "feat_orders", "run_pipeline"),

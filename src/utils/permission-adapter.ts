@@ -815,6 +815,28 @@ export const DEFAULT_FEATURES_TEMPLATE: FeaturePermission[] = [
       },
     ],
   },
+  {
+    id: "feat_customer_popups",
+    name: "Customer App Pop-ups",
+    category: "operations",
+    pagePath: "/popups",
+    description: "Letters, cards and strips shown in the One Local customer app, kept on the One Local server.",
+    accessLevel: "full",
+    actions: [
+      {
+        key: "view_popups",
+        label: "View Pop-ups",
+        description: "See pop-ups, their status and their results",
+        enabled: true,
+      },
+      {
+        key: "manage_popups",
+        label: "Manage Pop-ups",
+        description: "Create and edit pop-ups, submit, approve, return or end them, and upload their media",
+        enabled: true,
+      },
+    ],
+  },
 ];
 
 /**

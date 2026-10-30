@@ -17,7 +17,7 @@ export function oneLocalBaseUrl(env: NodeJS.ProcessEnv = process.env): string | 
 const TIMEOUT_MS = 15000;
 
 export async function oneLocalAdminRequest<T = Record<string, unknown>>(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PUT",
   path: string,
   accessToken: string,
   body?: Record<string, unknown>
@@ -33,9 +33,9 @@ export async function oneLocalAdminRequest<T = Record<string, unknown>>(
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "X-Request-Id": randomUUID(),
-        ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
+        ...(method !== "GET" ? { "Content-Type": "application/json" } : {}),
       },
-      body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
+      body: method !== "GET" ? JSON.stringify(body ?? {}) : undefined,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch {

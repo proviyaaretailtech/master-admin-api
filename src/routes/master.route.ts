@@ -21,6 +21,7 @@ import { customerService } from "../services/master/customer.service";
 import { supportService } from "../services/master/support.service";
 import { orgRolesService } from "../services/master/org-roles.service";
 import { orderHoldService } from "../services/master/order-hold.service";
+import { popupsService } from "../services/master/popups.service";
 import { pipelineService } from "../services/master/pipeline.service";
 import * as review from "../validators/master-review.validator";
 import { createOrganizationSchema } from "../validators/organization.validator";
@@ -380,6 +381,41 @@ for (const [verb, msg] of [
     res.status(OK).json({ message: msg, result: await orderHoldService.decide(actor, req.token ?? "", id, verb, reason) });
   }));
 }
+
+// --------------------------------------------------------------- customer-app pop-ups (owned by One Local)
+// Master calls One Local server to server with the staff member's session; the browser never calls One Local.
+const popupId = z.object({ id: z.string().regex(/^[A-Za-z0-9-]{1,64}$/, "Invalid pop-up id") });
+const popupDraft = z.record(z.unknown());
+r.get("/popups", can("feat_customer_popups", "view_popups"), wrap(async (req, res) => {
+  const { status } = z.object({ status: z.enum(["draft", "submitted", "approved", "live", "ended"]).optional() }).parse(req.query);
+  res.status(OK).json(await popupsService.list(req.token ?? "", status));
+}));
+r.get("/popups/:id", can("feat_customer_popups", "view_popups"), wrap(async (req, res) => {
+  res.status(OK).json(await popupsService.get(req.token ?? "", popupId.parse(req.params).id));
+}));
+r.get("/popups/:id/results", can("feat_customer_popups", "view_popups"), wrap(async (req, res) => {
+  res.status(OK).json(await popupsService.results(req.token ?? "", popupId.parse(req.params).id));
+}));
+r.post("/popups", canWrite("feat_customer_popups", "manage_popups"), wrap(async (req, res, actor) => {
+  res.status(HTTPSTATUS.CREATED).json(await popupsService.create(actor, req.token ?? "", popupDraft.parse(req.body ?? {})));
+}));
+r.put("/popups/:id", canWrite("feat_customer_popups", "manage_popups"), wrap(async (req, res, actor) => {
+  const { id } = popupId.parse(req.params);
+  res.status(OK).json(await popupsService.update(actor, req.token ?? "", id, popupDraft.parse(req.body ?? {})));
+}));
+r.post("/popups/:id/status", canWrite("feat_customer_popups", "manage_popups"), wrap(async (req, res, actor) => {
+  const { id } = popupId.parse(req.params);
+  const b = z
+    .object({ action: z.enum(["submit", "return", "approve", "end"]), note: z.string().trim().max(500).optional() })
+    .parse(req.body ?? {});
+  res.status(OK).json(await popupsService.act(actor, req.token ?? "", id, b.action, b.note));
+}));
+r.post("/popups/media/upload-url", canWrite("feat_customer_popups", "manage_popups"), wrap(async (req, res) => {
+  const b = z
+    .object({ content_type: z.string().min(3).max(100), filename: z.string().min(1).max(200), size: z.number().int().positive() })
+    .parse(req.body ?? {});
+  res.status(OK).json(await popupsService.uploadUrl(req.token ?? "", b));
+}));
 
 // --------------------------------------------------------------- pipeline
 // Master follows the event log (domain_events). Status reads only; follow moves Master's bookmark and its counters.
